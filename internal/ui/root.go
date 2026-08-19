@@ -15,6 +15,7 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/core"
 	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/domain"
+	"github.com/sorokin-vladimir/tele/internal/inputmethod"
 	"github.com/sorokin-vladimir/tele/internal/notices"
 	"github.com/sorokin-vladimir/tele/internal/settings"
 	"github.com/sorokin-vladimir/tele/internal/store"
@@ -46,21 +47,22 @@ const (
 const borderSize = 1
 
 type RootModel struct {
-	ctx       context.Context
-	screen    Screen
-	focus     Focus
-	width     int
-	height    int
-	chatList  *screens.ChatListModel
-	chat      *screens.ChatModel
-	login     screens.LoginModel
-	statusBar *components.StatusBar
-	toasts    *components.ToastStack
-	vimState  *keys.VimState
-	keyMap    keys.KeyMap
-	matcher   *keys.Matcher
-	st        store.Store
-	owner     Owner
+	ctx         context.Context
+	screen      Screen
+	focus       Focus
+	width       int
+	height      int
+	chatList    *screens.ChatListModel
+	chat        *screens.ChatModel
+	login       screens.LoginModel
+	statusBar   *components.StatusBar
+	toasts      *components.ToastStack
+	vimState    *keys.VimState
+	keyMap      keys.KeyMap
+	matcher     *keys.Matcher
+	st          store.Store
+	owner       Owner
+	inputMethod inputmethod.Controller
 	// chatListSub is the chatlist subscription; chatSub is the open chat's.
 	// Zero means not subscribed.
 	chatListSub project.SubID
@@ -248,6 +250,18 @@ func (m RootModel) WithContext(ctx context.Context) RootModel {
 	return m
 }
 
+// WithInputMethod attaches the process-lifetime input-method controller.
+func (m RootModel) WithInputMethod(controller inputmethod.Controller) RootModel {
+	m.inputMethod = controller
+	return m
+}
+
+func (m *RootModel) updateInputMethod(focused bool) {
+	if m.inputMethod != nil && m.vimState.Mode == keys.ModeNormal {
+		m.inputMethod.SetNormal(focused)
+	}
+}
+
 // WithLogger attaches the app logger so the client can say what it did with a
 // delta. Optional: every use goes through m.debug, which is a no-op when unset,
 // so tests and any other caller need not supply one.
@@ -418,8 +432,13 @@ func (m RootModel) SettleToastsForTest() {
 }
 
 func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	wasNormal := m.vimState.Mode == keys.ModeNormal
 	next, cmd := m.updateInner(msg)
 	rm := next.(RootModel)
+	isNormal := rm.vimState.Mode == keys.ModeNormal
+	if rm.inputMethod != nil && wasNormal != isNormal {
+		rm.inputMethod.SetNormal(isNormal)
+	}
 	// Reconcile Kitty placements after every event: the visible set may have
 	// changed (scroll, chat switch, new message, image load, resize), and only
 	// on-screen images should hold a placement (issue: burst transmit corrupts

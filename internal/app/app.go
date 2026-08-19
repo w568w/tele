@@ -19,6 +19,7 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/core"
 	"github.com/sorokin-vladimir/tele/internal/core/outbox"
 	"github.com/sorokin-vladimir/tele/internal/core/state"
+	"github.com/sorokin-vladimir/tele/internal/inputmethod"
 	"github.com/sorokin-vladimir/tele/internal/notices"
 	"github.com/sorokin-vladimir/tele/internal/store"
 	internaltg "github.com/sorokin-vladimir/tele/internal/tg"
@@ -193,6 +194,9 @@ func New(cfgStore *config.Store, log *zap.Logger, verbose bool, trace bool) (*Ap
 func (a *App) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	inputMethod := inputmethod.New()
+	inputMethod.SetNormal(true)
+	defer inputMethod.SetNormal(false)
 	if sc, ok := a.st.(interface{ Close() error }); ok {
 		defer func() { _ = sc.Close() }()
 	}
@@ -221,7 +225,7 @@ func (a *App) Run() error {
 
 	root := ui.NewRootModel(a.st, a.cfg().UI.HistoryLimit, a.verbose)
 	root = root.WithContext(ctx).WithConfig(a.cfg()).WithKeyMap(km).WithOwner(att).WithLogger(a.log).
-		WithConfigReload(a.reloadConfig).WithSettingsStore(a.cfgStore)
+		WithConfigReload(a.reloadConfig).WithSettingsStore(a.cfgStore).WithInputMethod(inputMethod)
 	root.SetLoginModel(screens.NewLoginModel(authFlow))
 	root.SetTmpDir(a.tmpDir)
 
