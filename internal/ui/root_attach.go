@@ -94,6 +94,20 @@ func (m RootModel) stageAttachmentFromPath(path string) (RootModel, tea.Cmd) {
 	return m, focusCmd
 }
 
+func (m RootModel) stageAttachmentsFromPaths(paths []string) (RootModel, tea.Cmd) {
+	cmds := make([]tea.Cmd, 0, len(paths))
+	for _, path := range paths {
+		full := len(m.pendingAttachments) >= maxStagedAttachments
+		var cmd tea.Cmd
+		m, cmd = m.stageAttachmentFromPath(path)
+		cmds = append(cmds, cmd)
+		if full {
+			break
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
 // syncAttachmentChips pushes the queue to the composer. The album-wide "Send as"
 // toggle is offered only when every staged part is a photo or a video: Telegram
 // cannot mix visual media with documents in one album, so a mixed set has no

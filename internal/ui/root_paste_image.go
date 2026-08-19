@@ -6,52 +6,51 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 )
 
-// clipboardImagePastedMsg reports the outcome of a composer Ctrl+V that tried to
-// read an image: path is a staged temp file, or err describes an extraction
-// failure. Both empty means the branch produced a plain text paste instead.
+// clipboardImagePastedMsg reports a file-manager paste, clipboard image, or
+// clipboard extraction failure. Plain text continues to use tea.PasteMsg.
 type clipboardImagePastedMsg struct {
-	path string
-	err  error
+	paths []string
+	err   error
 }
 
-// readClipboardForComposerCmd runs off the update loop. It prefers a clipboard
-// image (staged as a photo); on no image it falls back to today's text paste;
-// on a reader failure it reports the error so the handler can toast + fall back.
-// A single tea.Cmd yields one message, so the error path defers the text
-// fallback to the handler.
+// readClipboardForComposerCmd runs off the update loop. It prefers an image,
+// then files copied by a file manager, and finally plain text. A single tea.Cmd
+// yields one message, so the image-error path defers its text fallback to the
+// handler.
 func readClipboardForComposerCmd(tmpDir string) tea.Cmd {
 	return func() tea.Msg {
-		data, ext, err := clipImageReader.ReadImage()
+		data, ext, imageErr := clipImageReader.ReadImage()
+		if len(data) > 0 {
+			path, werr := writeTempMediaFile(data, tmpDir, ext)
+			return clipboardImagePastedMsg{paths: []string{path}, err: werr}
+		}
+		paths, err := clipFileReader()
 		if err != nil {
 			return clipboardImagePastedMsg{err: err}
 		}
-		if len(data) == 0 {
-			// No image: preserve the existing text-paste behavior.
-			str, terr := clipboardRead()
-			if terr != nil || str == "" {
-				return nil
-			}
-			return tea.PasteMsg{Content: str}
+		if len(paths) > 0 {
+			return clipboardImagePastedMsg{paths: paths}
 		}
-		path, werr := writeTempMediaFile(data, tmpDir, ext)
-		if werr != nil {
-			return clipboardImagePastedMsg{err: werr}
+		if imageErr != nil {
+			return clipboardImagePastedMsg{err: imageErr}
 		}
-		return clipboardImagePastedMsg{path: path}
+		str, err := clipboardRead()
+		if err != nil || str == "" {
+			return nil
+		}
+		return tea.PasteMsg{Content: str}
 	}
 }
 
-// handleClipboardImagePasted stages a pasted clipboard image as a photo, or on
-// failure shows a toast and falls back to a text paste.
 func (m RootModel) handleClipboardImagePasted(msg clipboardImagePastedMsg) (RootModel, tea.Cmd) {
 	if msg.err != nil {
 		toast := func() tea.Msg {
-			return StatusErrMsg{Text: "clipboard image paste failed", Sev: components.SeverityWarning}
+			return StatusErrMsg{Text: "clipboard paste failed", Sev: components.SeverityWarning}
 		}
 		return m, tea.Batch(toast, readClipboardCmd())
 	}
-	if msg.path == "" {
-		return m, nil
+	if len(msg.paths) > 0 {
+		return m.stageAttachmentsFromPaths(msg.paths)
 	}
-	return m.stageAttachmentFromPath(msg.path)
+	return m, nil
 }

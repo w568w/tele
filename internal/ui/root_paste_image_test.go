@@ -2,6 +2,8 @@ package ui_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -27,12 +29,68 @@ var pngBytes = []byte{
 // the composer paste path.
 func enterInsertOnChat(t *testing.T) (ui.RootModel, store.Store) {
 	t.Helper()
+	t.Cleanup(ui.SetClipboardFileReaderForTest(func() ([]string, error) { return nil, nil }))
 	m, st := newRootOnChat(t)
 	m.SetTmpDir(t.TempDir())
 	nm, _ := m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
 	m = nm.(ui.RootModel)
 	require.Equal(t, keys.ModeInsert, m.VimMode())
 	return m, st
+}
+
+func TestPasteFiles_StagesCopiedFilesInOrderWhenNoImage(t *testing.T) {
+	m, _ := enterInsertOnChat(t)
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.pdf")
+	require.NoError(t, os.WriteFile(first, []byte("one"), 0600))
+	require.NoError(t, os.WriteFile(second, []byte("two"), 0600))
+
+	defer ui.SetClipboardFileReaderForTest(func() ([]string, error) {
+		return []string{first, second}, nil
+	})()
+	defer ui.SetClipboardImageReaderForTest(func() ([]byte, string, error) {
+		return nil, "", nil
+	})()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	for _, msg := range drainMsgs(cmd()) {
+		if msg != nil {
+			next, _ := m.Update(msg)
+			m = next.(ui.RootModel)
+		}
+	}
+
+	assert.Equal(t, 2, m.PendingAttachmentCount())
+	assert.Equal(t, keys.ModeInsert, m.VimMode())
+}
+
+func TestPasteImage_TakesPriorityOverFileList(t *testing.T) {
+	m, _ := enterInsertOnChat(t)
+	fileRead := false
+	defer ui.SetClipboardFileReaderForTest(func() ([]string, error) {
+		fileRead = true
+		return []string{"/tmp/image.png"}, nil
+	})()
+	defer ui.SetClipboardImageReaderForTest(func() ([]byte, string, error) {
+		return pngBytes, ".png", nil
+	})()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	for _, msg := range drainMsgs(cmd()) {
+		if msg != nil {
+			next, _ := m.Update(msg)
+			m = next.(ui.RootModel)
+		}
+	}
+
+	assert.Equal(t, 1, m.PendingAttachmentCount())
+	assert.False(t, fileRead, "an image representation wins without probing file URIs")
+	sendAs, ok := m.PendingAttachmentSendAs()
+	require.True(t, ok)
+	assert.Equal(t, domain.MediaPhoto, sendAs)
 }
 
 func TestPasteImage_StagesAsPhotoAndEntersInsert(t *testing.T) {
