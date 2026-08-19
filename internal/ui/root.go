@@ -112,6 +112,9 @@ type RootModel struct {
 	// overlay. Kept apart from imageCache on purpose: a scrolled chat must not
 	// evict the faces of the people you talk to (#223).
 	avatars *avatarStore
+	// fullPhotoInFlight deduplicates eager and viewer-initiated full-photo
+	// downloads. It is mutated only by the Bubble Tea update loop.
+	fullPhotoInFlight map[int64]bool
 	// gifFrames caches decoded frames per document id for inline GIF looping.
 	gifFrames      map[int64][]image.Image
 	gifActiveID    int64 // document id currently animating (0 = none)
@@ -590,8 +593,11 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		screens.LoadMoreMsg,
 		PhotoReadyMsg,
 		FullPhotoReadyMsg,
+		fullPhotoFailedMsg,
 		kittyEncodedMsg,
 		kittyTransmittedMsg,
+		modalPhotoEncodedMsg,
+		modalPhotoTransmittedMsg,
 		components.OpenInViewerRequest,
 		components.OpenExternalRequest,
 		components.DownloadFileRequest,

@@ -38,12 +38,19 @@ func (s *KittyStore) IDFor(photoID int64) uint32 {
 	if id, ok := s.idByPhoto[photoID]; ok {
 		return id
 	}
+	id := s.NewID()
+	s.idByPhoto[photoID] = id
+	return id
+}
+
+// NewID returns an unbound image id for short-lived placements such as modal
+// viewers. Unlike IDFor, it does not grow the photo-id mapping.
+func (s *KittyStore) NewID() uint32 {
 	id := s.next
 	s.next++
 	if s.next > 0xFFFFFF {
 		s.next = 1 // wrap; a TUI session will not hold 16M distinct photos
 	}
-	s.idByPhoto[photoID] = id
 	return id
 }
 

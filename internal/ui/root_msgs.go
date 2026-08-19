@@ -55,6 +55,28 @@ type FullPhotoReadyMsg struct {
 	Image   image.Image
 }
 
+type fullPhotoFailedMsg struct {
+	photoID int64
+	err     error
+	quiet   bool
+}
+
+// modalPhotoEncodedMsg carries one generation's complete Kitty sequence. The
+// update loop rejects stale generations before anything reaches the terminal.
+type modalPhotoEncodedMsg struct {
+	renderGen int
+	id        uint32
+	seq       string
+	err       error
+}
+
+// modalPhotoTransmittedMsg switches the modal from its reserved loading box to
+// placeholders only after the matching Kitty sequence has been queued.
+type modalPhotoTransmittedMsg struct {
+	renderGen int
+	id        uint32
+}
+
 // kittyEncodedMsg reports that a photo's Kitty placement was encoded
 // successfully and carries the sequence to write to the terminal. It is emitted
 // only on encode success, so a failed encode never advances to marking the image

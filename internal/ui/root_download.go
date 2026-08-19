@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -272,22 +274,38 @@ func SetOpenPathForTest(fn func(string)) func() {
 // without anyone asking and therefore keeps an expired file reference to
 // itself. The viewer passes false: there the user is looking at the photo and
 // would otherwise wonder why it stays at preview quality.
+const fullPhotoDownloadTimeout = 90 * time.Second
+
 func saveFullPhotoCmd(ctx context.Context, o Owner, chatID int64, msgID int, photoID int64, tmpDir string, quiet bool) tea.Cmd {
 	return func() tea.Msg {
-		path, err := o.SaveMedia(ctx, chatID, msgID, domain.PhotoFull, tmpDir)
+		downloadCtx, cancel := context.WithTimeout(ctx, fullPhotoDownloadTimeout)
+		defer cancel()
+		path, err := o.SaveMedia(downloadCtx, chatID, msgID, domain.PhotoFull, tmpDir)
 		if err != nil {
-			if quiet {
-				return errStatusBackground("full photo download", err)
-			}
-			return errStatus("full photo download", err)
+			return fullPhotoFailedMsg{photoID: photoID, err: err, quiet: quiet}
 		}
 		defer func() { _ = os.Remove(path) }()
 		img, derr := decodeImageFile(path)
 		if derr != nil {
-			return nil
+			return fullPhotoFailedMsg{
+				photoID: photoID,
+				err:     fmt.Errorf("decode full photo: %w", derr),
+				quiet:   quiet,
+			}
 		}
 		return FullPhotoReadyMsg{PhotoID: photoID, Image: img}
 	}
+}
+
+func (m *RootModel) startFullPhotoDownload(chatID int64, msgID int, photoID int64, quiet bool) tea.Cmd {
+	if m.fullPhotoInFlight == nil {
+		m.fullPhotoInFlight = make(map[int64]bool)
+	}
+	if m.fullPhotoInFlight[photoID] {
+		return nil
+	}
+	m.fullPhotoInFlight[photoID] = true
+	return saveFullPhotoCmd(m.ctx, m.owner, chatID, msgID, photoID, m.tmpDir, quiet)
 }
 
 func (m RootModel) pendingDownloadCmds(msgs []domain.Message) tea.Cmd {
@@ -302,7 +320,7 @@ func (m RootModel) pendingDownloadCmds(msgs []domain.Message) tea.Cmd {
 			}
 			if m.cfg != nil && m.cfg.Photos.EagerFullQuality && msg.Photo.FullThumbSize != "" {
 				if !m.fullImageCache.Contains(msg.Photo.ID) {
-					cmds = append(cmds, saveFullPhotoCmd(m.ctx, m.owner, msg.ChatID, msg.ID, msg.Photo.ID, m.tmpDir, true))
+					cmds = append(cmds, m.startFullPhotoDownload(msg.ChatID, msg.ID, msg.Photo.ID, true))
 				}
 			}
 		}

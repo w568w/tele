@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"image"
 	"testing"
 	"time"
@@ -80,10 +81,8 @@ func TestClosePhotoModal_Clears(t *testing.T) {
 func TestClosePhotoModal_DeletesKittyPlacement(t *testing.T) {
 	m := newSizedModel(t)
 	m.imageMode = media.ModeKitty
-	m.photoViewer = &photoViewer{photoID: 42}
-	// Simulate an open modal that transmitted its image under the stable key.
-	m.imageCache.Add(photoPlayerKey, solidImage(100, 80))
-	id := m.kittyStore.IDFor(photoPlayerKey)
+	id := m.kittyStore.NewID()
+	m.photoViewer = &photoViewer{photoID: 42, kittyID: id}
 
 	m2, cmd := m.closePhotoModal()
 	assert.Nil(t, m2.photoViewer)
@@ -102,13 +101,17 @@ func TestClosePhotoModal_NoDeleteWhenNoImageTransmitted(t *testing.T) {
 }
 
 func TestPhotoFooterHints(t *testing.T) {
-	h := photoFooterHints(false)
+	h := photoFooterHints(false, false)
 	assert.Contains(t, h, "external", "hints mention the external-open action")
 	assert.Contains(t, h, "close", "hints mention close")
 	assert.NotContains(t, h, "browse", "no browse hint for a lone photo")
+	assert.NotContains(t, h, "retry", "retry only appears after a failure")
 
-	album := photoFooterHints(true)
+	album := photoFooterHints(true, false)
 	assert.Contains(t, album, "browse", "album photo shows the left/right browse hint")
+
+	failed := photoFooterHints(false, true)
+	assert.Contains(t, failed, "etry")
 }
 
 func TestPhotoViewerView_RendersOverBase(t *testing.T) {
@@ -171,6 +174,132 @@ func TestHandleFullPhotoReady_IgnoresMismatch(t *testing.T) {
 	m.photoViewer = &photoViewer{photoID: 5, full: false}
 	m2, _ := m.handleFullPhotoReady(FullPhotoReadyMsg{PhotoID: 999, Image: solidImage(10, 10)})
 	assert.False(t, m2.photoViewer.full, "a different photo does not touch the modal")
+}
+
+func TestModalPhoto_WaitsForMatchingKittyPlacement(t *testing.T) {
+	m := newSizedModel(t)
+	m.imageMode = media.ModeKitty
+	m.fullImageCache.Add(5, solidImage(800, 600))
+
+	m, cmd := m.openPhotoModal(domain.PhotoRef{ID: 5, FullThumbSize: "x"}, 10, "Alice", time.Now())
+	require.NotNil(t, cmd)
+	require.False(t, m.photoViewer.kittyReady, "placeholder must stay hidden while the image encodes")
+
+	encoded, ok := cmd().(modalPhotoEncodedMsg)
+	require.True(t, ok)
+	m, rawCmd := m.handleModalPhotoEncoded(encoded)
+	require.NotNil(t, rawCmd)
+	require.False(t, m.photoViewer.kittyReady, "queueing the ordered write does not advertise readiness")
+
+	m, _ = m.handleModalPhotoTransmitted(modalPhotoTransmittedMsg{
+		renderGen: encoded.renderGen,
+		id:        encoded.id,
+	})
+	require.True(t, m.photoViewer.kittyReady)
+}
+
+func TestModalPhoto_EachViewerGetsItsOwnKittyID(t *testing.T) {
+	m := newSizedModel(t)
+	m.imageMode = media.ModeKitty
+	m.fullImageCache.Add(5, solidImage(800, 600))
+	m.fullImageCache.Add(6, solidImage(800, 600))
+
+	m, _ = m.openPhotoModal(domain.PhotoRef{ID: 5}, 10, "", time.Time{})
+	firstID := m.photoViewer.kittyID
+	m, _ = m.closePhotoModal()
+	m, _ = m.openPhotoModal(domain.PhotoRef{ID: 6}, 11, "", time.Time{})
+
+	require.NotZero(t, firstID)
+	require.NotEqual(t, firstID, m.photoViewer.kittyID)
+}
+
+func TestModalPhoto_IgnoresSupersededEncoding(t *testing.T) {
+	m := newSizedModel(t)
+	m.imageMode = media.ModeKitty
+	m.photoViewer = &photoViewer{photoID: 5, kittyID: 9, renderGen: 2}
+
+	m2, cmd := m.handleModalPhotoEncoded(modalPhotoEncodedMsg{
+		id: 9, renderGen: 1, seq: "stale",
+	})
+	require.Nil(t, cmd)
+	require.False(t, m2.photoViewer.kittyReady)
+}
+
+func TestModalPhoto_FullImageWaitsForCurrentPlacement(t *testing.T) {
+	m := newSizedModel(t)
+	m.imageMode = media.ModeKitty
+	preview := solidImage(320, 240)
+	full := solidImage(1600, 900)
+	m.photoViewer = &photoViewer{
+		photoID:   5,
+		img:       preview,
+		renderGen: 1,
+		kittyID:   9,
+		cols:      20,
+		rows:      10,
+	}
+
+	m, rawCmd := m.handleModalPhotoEncoded(modalPhotoEncodedMsg{
+		id: 9, renderGen: 1, seq: "preview",
+	})
+	require.NotNil(t, rawCmd)
+	require.True(t, m.photoViewer.transmitting)
+
+	m, cmd := m.handleFullPhotoReady(FullPhotoReadyMsg{PhotoID: 5, Image: full})
+	require.Nil(t, cmd, "the full image must wait until the preview write completes")
+	require.Same(t, preview, m.photoViewer.img)
+	require.Same(t, full, m.photoViewer.pendingFull)
+
+	m, cmd = m.handleModalPhotoTransmitted(modalPhotoTransmittedMsg{renderGen: 1, id: 9})
+	require.NotNil(t, cmd, "completing the preview starts the deferred full-image encode")
+	require.Same(t, full, m.photoViewer.img)
+	require.True(t, m.photoViewer.full)
+	require.False(t, m.photoViewer.kittyReady)
+	require.Equal(t, 2, m.photoViewer.renderGen)
+}
+
+func TestModalPhoto_LatePlacementIsDeletedAfterViewerChanges(t *testing.T) {
+	m := newSizedModel(t)
+	m.imageMode = media.ModeKitty
+	m.photoViewer = &photoViewer{photoID: 6, kittyID: 10}
+
+	_, cmd := m.handleModalPhotoTransmitted(modalPhotoTransmittedMsg{renderGen: 1, id: 9})
+	require.NotNil(t, cmd)
+	raw, ok := cmd().(tea.RawMsg)
+	require.True(t, ok)
+	require.Equal(t, media.DeleteSeq(9), raw.Msg)
+}
+
+func TestFullPhotoFailure_StopsSpinnerAndCanRetry(t *testing.T) {
+	m := newSizedModel(t)
+	m.imageMode = media.ModeBlocks
+	m.photoViewer = &photoViewer{
+		photoID: 9,
+		chatID:  1,
+		msgID:   10,
+		ref:     domain.PhotoRef{ID: 9, FullThumbSize: "x"},
+		cols:    20,
+		rows:    10,
+	}
+	m.fullPhotoInFlight = map[int64]bool{9: true}
+
+	m, _ = m.updateNetworkMsg(fullPhotoFailedMsg{photoID: 9, err: context.DeadlineExceeded})
+	require.True(t, m.photoViewer.failed)
+	require.False(t, m.fullPhotoInFlight[9])
+	assert.Contains(t, m.photoViewerView(""), "couldn't load photo")
+
+	m, cmd := m.handlePhotoModalKey("r")
+	require.NotNil(t, cmd)
+	require.False(t, m.photoViewer.failed)
+	require.True(t, m.fullPhotoInFlight[9])
+}
+
+func TestFullPhotoDownload_DeduplicatesEagerAndViewerRequests(t *testing.T) {
+	m := newSizedModel(t)
+	first := m.startFullPhotoDownload(1, 10, 9, true)
+	second := m.startFullPhotoDownload(1, 10, 9, false)
+	require.NotNil(t, first)
+	require.Nil(t, second)
 }
 
 func TestUpdatePhotoSpinner_AdvancesWhileLoading(t *testing.T) {

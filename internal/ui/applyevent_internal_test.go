@@ -539,9 +539,14 @@ func TestSaveFullPhotoCmd_BackgroundPrefetchDoesNotReportAnExpiredReference(t *t
 	o.mediaErr = &telerr.Error{Kind: telerr.StaleReference}
 
 	msg := saveFullPhotoCmd(context.Background(), o, 1, 5, 9, t.TempDir(), true)()
-
-	if msg != nil {
-		t.Fatalf("expected no status message, got %T: %v", msg, msg)
+	fail, ok := msg.(fullPhotoFailedMsg)
+	if !ok || !fail.quiet {
+		t.Fatalf("expected a quiet fullPhotoFailedMsg, got %T: %v", msg, msg)
+	}
+	m := NewRootModel(store.NewMemory(), 50, false)
+	_, cmd := m.updateNetworkMsg(fail)
+	if cmd != nil {
+		t.Fatal("background expiry must remain silent after clearing in-flight state")
 	}
 }
 
@@ -552,9 +557,32 @@ func TestSaveFullPhotoCmd_TheViewerReportsAnExpiredReference(t *testing.T) {
 	o.mediaErr = &telerr.Error{Kind: telerr.StaleReference}
 
 	msg := saveFullPhotoCmd(context.Background(), o, 1, 5, 9, t.TempDir(), false)()
+	fail, ok := msg.(fullPhotoFailedMsg)
+	if !ok || fail.quiet {
+		t.Fatalf("expected a foreground fullPhotoFailedMsg, got %T", msg)
+	}
+	m := NewRootModel(store.NewMemory(), 50, false)
+	_, cmd := m.updateNetworkMsg(fail)
+	if cmd == nil {
+		t.Fatal("viewer failure must still report a status message")
+	}
+	status := cmd()
+	if _, ok := status.(StatusErrMsg); !ok {
+		t.Fatalf("expected a StatusErrMsg, got %T", status)
+	}
+}
 
-	if _, ok := msg.(StatusErrMsg); !ok {
-		t.Fatalf("expected a StatusErrMsg, got %T", msg)
+func TestSaveFullPhotoCmd_DecodeFailureIsReportedToTheViewer(t *testing.T) {
+	o := newOwnerStub(store.NewMemory())
+	src := filepath.Join(t.TempDir(), "broken.jpg")
+	if err := os.WriteFile(src, []byte("not an image"), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	o.mediaPaths[mediaKey{1, 5, domain.PhotoFull}] = src
+
+	msg := saveFullPhotoCmd(context.Background(), o, 1, 5, 9, t.TempDir(), false)()
+	if fail, ok := msg.(fullPhotoFailedMsg); !ok || fail.err == nil {
+		t.Fatalf("expected a decode failure message, got %T", msg)
 	}
 }
 

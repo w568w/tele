@@ -91,8 +91,19 @@ func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 		return m, nil
 
 	case FullPhotoReadyMsg:
+		delete(m.fullPhotoInFlight, msg.PhotoID)
 		m.fullImageCache.Add(msg.PhotoID, msg.Image)
 		return m.handleFullPhotoReady(msg)
+
+	case fullPhotoFailedMsg:
+		delete(m.fullPhotoInFlight, msg.photoID)
+		return m.handleFullPhotoFailed(msg)
+
+	case modalPhotoEncodedMsg:
+		return m.handleModalPhotoEncoded(msg)
+
+	case modalPhotoTransmittedMsg:
+		return m.handleModalPhotoTransmitted(msg)
 
 	case components.OpenInViewerRequest:
 		// The menu "Open" item mirrors the o key: open the sole target directly or
