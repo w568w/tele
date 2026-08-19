@@ -12,13 +12,29 @@ import (
 const quoteGlyph = "▌ "
 
 func replyName(orig *domain.Message) string {
-	if orig.SenderName != "" {
-		return orig.SenderName
+	return replySenderName(orig.SenderName, orig.IsOut)
+}
+
+func replySenderName(senderName string, isOut bool) string {
+	if senderName != "" {
+		return senderName
 	}
-	if orig.IsOut {
+	if isOut {
 		return "You"
 	}
 	return "?"
+}
+
+// replyPreview resolves a quote from the visible window first, then from the
+// lightweight preview fetched for an out-of-window original.
+func (ml *MessageList) replyPreview(msg domain.Message) (int64, string, string, bool) {
+	if orig := ml.findMessage(msg.ReplyToMsgID); orig != nil {
+		return orig.SenderID, replyName(orig), firstLine(orig.Text), true
+	}
+	if p := msg.ReplyPreview; p != nil {
+		return p.SenderID, replySenderName(p.SenderName, p.IsOut), firstLine(p.Text), true
+	}
+	return 0, "", "", false
 }
 
 func firstLine(s string) string {

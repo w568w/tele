@@ -73,6 +73,9 @@ type RootModel struct {
 	// slice rather than applying edits itself.
 	chatWindow project.ChatWindow
 	chatMsgs   []domain.Message
+	// pendingJumpMsgID is cleared when an AnchorMessage reset arrives with the
+	// requested message, at which point the pane selects and highlights it.
+	pendingJumpMsgID int
 	// chatUnreadReactions is the open chat's unread-reaction count, from the
 	// projection. Kept so focusing the pane can mark them read: a reaction that
 	// arrived while you were elsewhere is only seen when you look.
@@ -591,6 +594,7 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// network/data messages
 	case screens.OpenChatMsg,
 		screens.LoadMoreMsg,
+		screens.LoadNewerMsg,
 		PhotoReadyMsg,
 		FullPhotoReadyMsg,
 		fullPhotoFailedMsg,

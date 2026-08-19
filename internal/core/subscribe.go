@@ -32,11 +32,25 @@ func (o *Owner) Subscribe(w project.Window) project.SubID {
 // MoveWindow repositions a subscription. It returns immediately: over a socket a
 // window move cannot be synchronous, so it is not synchronous here either.
 func (o *Owner) MoveWindow(id project.SubID, w project.Window) {
+	if cw, ok := w.(project.ChatWindow); ok && cw.Anchor.Kind == project.AnchorMessage && o.client != nil {
+		o.queueAnchoredWindow(id, cw)
+		return
+	}
+	o.fetchMu.Lock()
+	delete(o.desiredAnchors, id)
+	delete(o.pendingAnchors, id)
 	o.publish(o.registry.MoveWindow(id, w))
+	o.fetchMu.Unlock()
 	o.maybeBackfill(id, w)
 }
 
-func (o *Owner) Unsubscribe(id project.SubID) { o.registry.Unsubscribe(id) }
+func (o *Owner) Unsubscribe(id project.SubID) {
+	o.fetchMu.Lock()
+	delete(o.desiredAnchors, id)
+	delete(o.pendingAnchors, id)
+	o.registry.Unsubscribe(id)
+	o.fetchMu.Unlock()
+}
 
 // Refresh rebuilds every subscription against current state.
 //
@@ -52,7 +66,8 @@ func (o *Owner) maybeBackfill(id project.SubID, w project.Window) {
 	if !ok || o.client == nil {
 		return
 	}
-	if !needsBackfill(project.BuildChat(o.reader(), cw), cw) {
+	contents := project.BuildChat(o.reader(), cw)
+	if !needsBackfill(contents, cw) && !needsReplyPreviews(contents.Messages) {
 		return
 	}
 	go o.backfill(o.ctx, id, cw)
@@ -81,6 +96,9 @@ func (o *Owner) publishChange(chg state.Change) {
 	// neither in between (#193).
 	if chg.Kind == state.ChangeNewMessage {
 		o.clearSentOutbox(chg.ChatID)
+		if chg.Message.ReplyToMsgID != 0 && chg.Message.ReplyPreview == nil {
+			go o.hydrateIncomingReply(chg.Message)
+		}
 	}
 	o.publish(o.registry.Refresh())
 }

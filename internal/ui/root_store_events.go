@@ -70,6 +70,9 @@ func (m RootModel) handleNotification(n core.Notification) (RootModel, tea.Cmd) 
 // handleFailure renders work the owner could not finish. The owner reports what
 // failed in domain terms (#191); saying it is the client's job.
 func (m RootModel) handleFailure(f core.Failure) (RootModel, tea.Cmd) {
+	if f.ChatID == m.currentChatID && f.Op == "load history" {
+		m.pendingJumpMsgID = 0
+	}
 	text, sev, ok := errText(f.Op, f.Err)
 	if !ok {
 		// A cancelled operation is not a failure and must not blank out the

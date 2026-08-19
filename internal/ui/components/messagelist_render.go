@@ -166,10 +166,9 @@ func (ml *MessageList) measureBubbleWithStatus(msg domain.Message, statusOverrid
 
 	// Ensure bubble is wide enough for the reply preview block.
 	if msg.ReplyToMsgID != 0 {
-		orig := ml.findMessage(msg.ReplyToMsgID)
 		var minW int
-		if orig != nil {
-			minW = measurePreviewBlock(replyName(orig), firstLine(orig.Text), maxContentW)
+		if _, name, snippet, ok := ml.replyPreview(msg); ok {
+			minW = measurePreviewBlock(name, snippet, maxContentW)
 		} else {
 			w := lipgloss.Width(quoteGlyph + theme.S().Quote.Render("Original not available"))
 			if w > maxContentW {
@@ -304,14 +303,7 @@ func (ml *MessageList) bubbleContentLines(msg domain.Message, m bubbleMetrics) [
 	}
 
 	if msg.ReplyToMsgID != 0 {
-		orig := ml.findMessage(msg.ReplyToMsgID)
-		var origSenderID int64
-		var name, snippet string
-		if orig != nil {
-			origSenderID = orig.SenderID
-			name = replyName(orig)
-			snippet = firstLine(orig.Text)
-		}
+		origSenderID, name, snippet, _ := ml.replyPreview(msg)
 		sideLines = append(sideLines, ml.renderPreviewLines(origSenderID, name, snippet, actualW, bs)...)
 		if msg.Text != "" || msg.Media != nil {
 			sideLines = append(sideLines, bs.Render(b.Left)+theme.Pad(innerW)+bs.Render(b.Right))

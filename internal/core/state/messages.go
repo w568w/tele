@@ -129,6 +129,22 @@ func (s *State) ApplyMediaRef(chatID int64, msgID int, photo *domain.PhotoRef, d
 	return c, true
 }
 
+// ApplyReplyPreview fills the quoted-message fields of a stored reply without
+// treating the lookup as a new message or a content edit.
+func (s *State) ApplyReplyPreview(chatID int64, msgID int, preview domain.ReplyPreview) (Change, bool) {
+	for _, msg := range s.st.Messages(chatID) {
+		if msg.ID != msgID || msg.ReplyToMsgID == 0 || msg.ReplyPreview != nil {
+			continue
+		}
+		msg.ReplyPreview = &preview
+		s.st.ReplaceMessage(chatID, msg)
+		c := Change{Kind: ChangeReplyPreview, ChatID: chatID, Message: msg, MsgID: msgID}
+		s.commit(c)
+		return c, true
+	}
+	return Change{}, false
+}
+
 // ApplyHistory replaces a chat's stored messages with a fetched page. The
 // caller merges the page with what is already held (see core.MergeOlder); state
 // stores what it is given and publishes one change, so the chat:<id> projection

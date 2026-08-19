@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/store"
 	"github.com/sorokin-vladimir/tele/internal/telerr"
@@ -39,6 +40,39 @@ func TestRoot_JumpToMsg_StartsHighlight(t *testing.T) {
 	assert.Equal(t, 5, root.Chat().HighlightedMsgID())
 	assert.Equal(t, components.HighlightInitialStep, root.Chat().HighlightStep())
 	require.NotNil(t, cmd, "a fade tick command should be scheduled")
+}
+
+func TestRoot_JumpToMsg_LoadsAnOutOfBufferAnchorThenHighlightsIt(t *testing.T) {
+	st := store.NewMemory()
+	st.SetChat(domain.Chat{ID: 1, Title: "Alice", Peer: domain.Peer{ID: 1, Type: domain.PeerUser}})
+	m := newRootInternal(st, 50).WithScreen(ScreenMain)
+	newM, _ := m.Update(screens.OpenChatMsg{ChatID: 1, Title: "Alice"})
+	m = newM.(RootModel)
+	newM, _ = applyEventInternal(t, m, st, store.Event{Kind: store.EventNewMessage,
+		Message: domain.Message{ID: 100, ChatID: 1, Text: "reply", ReplyToMsgID: 1, Date: time.Now()}})
+	m = newM.(RootModel)
+
+	newM, _ = m.Update(components.JumpToMsgRequest{MsgID: 1})
+	m = newM.(RootModel)
+	w, ok := m.owner.(*ownerStub).reg.Window(m.chatSub)
+	require.True(t, ok)
+	assert.Equal(t, project.Anchor{Kind: project.AnchorMessage, MsgID: 1}, w.(project.ChatWindow).Anchor)
+
+	m.owner.(*ownerStub).state.ApplyHistory(1, []domain.Message{
+		{ID: 1, ChatID: 1, Text: "target", Date: time.Unix(1, 0)},
+		{ID: 100, ChatID: 1, Text: "reply", ReplyToMsgID: 1, Date: time.Unix(100, 0)},
+	})
+	newM, cmd := m.owner.(*ownerStub).drain(m)
+	m = newM.(RootModel)
+
+	assert.Equal(t, 1, m.Chat().SelectedMessageID())
+	assert.Equal(t, 1, m.Chat().HighlightedMsgID())
+	assert.NotNil(t, cmd)
+
+	after := m.chatWindow.After
+	newM, _ = m.Update(screens.LoadNewerMsg{ChatID: 1, OffsetID: 1})
+	m = newM.(RootModel)
+	assert.Equal(t, after+50, m.chatWindow.After)
 }
 
 func TestRoot_MsgHighlightFade_DecrementsOnTick(t *testing.T) {

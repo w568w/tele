@@ -3,6 +3,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 	"github.com/sorokin-vladimir/tele/internal/ui/keys"
@@ -378,6 +379,21 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return m, nil
+	}
+
+	// A message-anchored jump is a separate history window. Go-to-bottom returns
+	// to the live tail instead of stopping at the bottom of that old window.
+	if action == keys.ActionGoBottom && m.focus == FocusChat &&
+		m.chatWindow.Anchor.Kind == project.AnchorMessage && m.owner != nil && m.chatSub != 0 {
+		m.pendingJumpMsgID = 0
+		m.chatWindow = project.ChatWindow{
+			ChatID: m.currentChatID,
+			Anchor: project.Anchor{Kind: project.AnchorNewest},
+			Before: m.historyLimit,
+		}
+		m.chat.SetLoading(true)
+		m.owner.MoveWindow(m.chatSub, m.chatWindow)
 		return m, nil
 	}
 

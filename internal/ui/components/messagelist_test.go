@@ -510,6 +510,20 @@ func TestMessageList_View_ReplyToSelfNotInBuffer_ShowsPlaceholder(t *testing.T) 
 	assert.NotContains(t, view, "▌ ?")
 }
 
+func TestMessageList_View_ReplyPreviewOutsideBuffer(t *testing.T) {
+	ml := components.NewMessageList(20, 80)
+	ml.SetMessages([]domain.Message{{
+		ID: 5, ChatID: 1, Text: "reply", Date: time.Now(), ReplyToMsgID: 1,
+		ReplyPreview: &domain.ReplyPreview{SenderID: 9, SenderName: "Alice", Text: "old message\nsecond line"},
+	}})
+
+	view := stripANSI(ml.View())
+	assert.Contains(t, view, "Alice")
+	assert.Contains(t, view, "old message")
+	assert.NotContains(t, view, "second line")
+	assert.NotContains(t, view, "Original not available")
+}
+
 func TestMessageList_View_ReplyShowsQuoteBlock(t *testing.T) {
 	ml := components.NewMessageList(20, 80)
 	orig := domain.Message{

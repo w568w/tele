@@ -48,6 +48,11 @@ type LoadMoreMsg struct {
 	OffsetID int
 }
 
+type LoadNewerMsg struct {
+	ChatID   int64
+	OffsetID int
+}
+
 type ChatModel struct {
 	// header is the open chat's rendered state, from the chat:<id> projection.
 	// A zero ChatID means no chat is open.
@@ -564,7 +569,12 @@ func (m *ChatModel) Update(msg tea.Msg) (layout.Pane, tea.Cmd) {
 		}
 		switch msg.Action {
 		case keys.ActionDown:
+			atBottom := m.msgList.AtBottom()
 			m.msgList.ScrollDown()
+			if atBottom && m.header.ChatID != 0 && m.msgList.Count() > 0 {
+				chatID := m.header.ChatID
+				return m, func() tea.Msg { return LoadNewerMsg{ChatID: chatID, OffsetID: m.msgList.SelectedMessageID()} }
+			}
 		case keys.ActionUp:
 			atTop := m.msgList.AtTop()
 			m.msgList.ScrollUp()
@@ -588,6 +598,10 @@ func (m *ChatModel) Update(msg tea.Msg) (layout.Pane, tea.Cmd) {
 				n = 1
 			}
 			m.msgList.ScrollDownBy(n)
+			if m.msgList.AtBottom() && m.header.ChatID != 0 && m.msgList.Count() > 0 {
+				chatID := m.header.ChatID
+				return m, func() tea.Msg { return LoadNewerMsg{ChatID: chatID, OffsetID: m.msgList.SelectedMessageID()} }
+			}
 		case keys.ActionScrollHalfUp:
 			n := m.msgList.ViewHeight() * 2 / 3
 			if n < 1 {
@@ -607,7 +621,10 @@ func (m *ChatModel) Update(msg tea.Msg) (layout.Pane, tea.Cmd) {
 				return m, func() tea.Msg { return LoadMoreMsg{ChatID: chatID, OffsetID: offsetID} }
 			}
 		case keys.ActionCursorDown:
-			m.msgList.CursorDown()
+			if m.msgList.CursorDown() && m.header.ChatID != 0 && m.msgList.Count() > 0 {
+				chatID := m.header.ChatID
+				return m, func() tea.Msg { return LoadNewerMsg{ChatID: chatID, OffsetID: m.msgList.SelectedMessageID()} }
+			}
 		case keys.ActionInsert:
 			m.composerFocused = true
 			m.refreshPlaceholder()

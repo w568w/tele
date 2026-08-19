@@ -88,20 +88,36 @@ func selectMessagesByIDs(msgs []domain.Message, want []int) []domain.Message {
 }
 
 func (c *GotdClient) GetHistory(ctx context.Context, peer domain.Peer, offsetID int, limit int) ([]domain.Message, error) {
+	return c.getHistory(ctx, peer, &tg.MessagesGetHistoryRequest{
+		Peer:     peerToInput(peer),
+		Limit:    limit,
+		OffsetID: offsetID,
+	})
+}
+
+// GetHistoryWindow loads a contiguous range around anchorID. Telegram counts
+// offset_id itself in the offset, so shifting by -(after+1) includes the anchor
+// plus exactly after newer positions when they exist.
+func (c *GotdClient) GetHistoryWindow(ctx context.Context, peer domain.Peer, anchorID, before, after int) ([]domain.Message, error) {
+	return c.getHistory(ctx, peer, &tg.MessagesGetHistoryRequest{
+		Peer:      peerToInput(peer),
+		OffsetID:  anchorID,
+		AddOffset: -(after + 1),
+		Limit:     before + after + 1,
+	})
+}
+
+func (c *GotdClient) getHistory(ctx context.Context, peer domain.Peer, req *tg.MessagesGetHistoryRequest) ([]domain.Message, error) {
 	api, err := c.acquireAPI()
 	if err != nil {
 		return nil, err
 	}
 
-	c.traceLog.Debug("GetHistory", zap.Int64("peer_id", peer.ID), zap.Int("offsetID", offsetID), zap.Int("limit", limit))
-	inputPeer := peerToInput(peer)
+	c.traceLog.Debug("GetHistory", zap.Int64("peer_id", peer.ID), zap.Int("offsetID", req.OffsetID),
+		zap.Int("addOffset", req.AddOffset), zap.Int("limit", req.Limit))
 	var msgs []domain.Message
 	err = WithRetry(ctx, func() error {
-		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
-			Peer:     inputPeer,
-			Limit:    limit,
-			OffsetID: offsetID,
-		})
+		result, err := api.MessagesGetHistory(ctx, req)
 		if err != nil {
 			c.log.Error("MessagesGetHistory failed", zap.Error(err))
 			return err

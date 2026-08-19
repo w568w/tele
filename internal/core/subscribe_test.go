@@ -23,9 +23,11 @@ import (
 // than it declared should fail loudly.
 type stubConn struct {
 	internaltg.Client
-	history []domain.Message
-	calls   atomic.Int32
-	release chan struct{}
+	history  []domain.Message
+	messages map[int]domain.Message
+	windows  map[int][]domain.Message
+	calls    atomic.Int32
+	release  chan struct{}
 }
 
 func (s *stubConn) Connect(context.Context, *config.Config, *internaltg.AuthFlow, chan<- struct{}, func(int64, string)) error {
@@ -40,6 +42,34 @@ func (s *stubConn) GetHistory(_ context.Context, _ domain.Peer, _ int, _ int) ([
 		<-s.release
 	}
 	return s.history, nil
+}
+
+func (s *stubConn) GetHistoryWindow(_ context.Context, _ domain.Peer, anchorID, _, _ int) ([]domain.Message, error) {
+	s.calls.Add(1)
+	if s.release != nil {
+		<-s.release
+	}
+	if window, ok := s.windows[anchorID]; ok {
+		return window, nil
+	}
+	if msg, ok := s.messages[anchorID]; ok {
+		return []domain.Message{msg}, nil
+	}
+	return s.history, nil
+}
+
+func (s *stubConn) RefreshMessage(_ context.Context, _ domain.Peer, id int) (domain.Message, error) {
+	return s.messages[id], nil
+}
+
+func (s *stubConn) RefreshMessages(_ context.Context, _ domain.Peer, ids []int) ([]domain.Message, error) {
+	out := make([]domain.Message, 0, len(ids))
+	for _, id := range ids {
+		if msg, ok := s.messages[id]; ok {
+			out = append(out, msg)
+		}
+	}
+	return out, nil
 }
 
 func newOwnerWithClient(t *testing.T, c Connection) (*Owner, *state.State) {
@@ -119,6 +149,134 @@ func TestOwner_FullWindowDoesNotBackfill(t *testing.T) {
 
 	_, _ = recvDelta(t, o.Deltas())
 	assert.Zero(t, c.calls.Load(), "the store already held everything the window asked for")
+}
+
+func TestOwner_FullWindowHydratesAnOutOfWindowReplyPreview(t *testing.T) {
+	c := &stubConn{messages: map[int]domain.Message{
+		1: {ID: 1, ChatID: 7, SenderID: 9, SenderName: "Ada", Text: "old message"},
+	}}
+	o, s := newOwnerWithClient(t, c)
+	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
+	s.Store().SetMessages(7, []domain.Message{{ID: 100, ChatID: 7, Text: "reply", ReplyToMsgID: 1}})
+
+	o.Subscribe(project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}})
+	_, _ = recvDelta(t, o.Deltas())
+	d, ok := recvDelta(t, o.Deltas())
+
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	assert.Equal(t, project.ChatUpdate, d.Chat.Kind)
+	require.NotNil(t, d.Chat.Message.ReplyPreview)
+	assert.Equal(t, "Ada", d.Chat.Message.ReplyPreview.SenderName)
+	assert.Equal(t, "old message", d.Chat.Message.ReplyPreview.Text)
+	assert.Zero(t, c.calls.Load(), "a full window must not page through history to resolve a reply")
+}
+
+func TestOwner_MessageAnchorFetchesTheTargetDirectly(t *testing.T) {
+	c := &stubConn{messages: map[int]domain.Message{
+		1: {ID: 1, ChatID: 7, Text: "target", Date: time.Unix(1, 0)},
+	}}
+	o, s := newOwnerWithClient(t, c)
+	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
+	s.Store().SetMessages(7, []domain.Message{{ID: 100, ChatID: 7, Text: "reply", Date: time.Unix(100, 0)}})
+
+	o.Subscribe(project.ChatWindow{
+		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorMessage, MsgID: 1}, Before: 20,
+	})
+	_, _ = recvDelta(t, o.Deltas())
+	d, ok := recvDelta(t, o.Deltas())
+
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	assert.Equal(t, 1, d.Chat.Contents.AnchorMsgID)
+	require.NotEmpty(t, d.Chat.Contents.Messages)
+	assert.Equal(t, 1, d.Chat.Contents.Messages[len(d.Chat.Contents.Messages)-1].ID)
+}
+
+func TestOwner_MessageAnchorLoadsNewerWithoutCrossingAStoredGap(t *testing.T) {
+	release := make(chan struct{})
+	c := &stubConn{windows: map[int][]domain.Message{
+		5: {
+			{ID: 4, ChatID: 7, Date: time.Unix(4, 0)},
+			{ID: 5, ChatID: 7, Date: time.Unix(5, 0)},
+			{ID: 6, ChatID: 7, Date: time.Unix(6, 0)},
+		},
+		6: {
+			{ID: 6, ChatID: 7, Date: time.Unix(6, 0)},
+			{ID: 7, ChatID: 7, Date: time.Unix(7, 0)},
+		},
+	}, release: release}
+	o, s := newOwnerWithClient(t, c)
+	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
+	s.Store().SetMessages(7, []domain.Message{{ID: 100, ChatID: 7, Date: time.Unix(100, 0)}})
+	id := o.Subscribe(project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}})
+	for len(o.deltas) > 0 {
+		<-o.Deltas()
+	}
+
+	o.MoveWindow(id, project.ChatWindow{
+		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorMessage, MsgID: 5}, Before: 1, After: 1,
+	})
+	require.Eventually(t, func() bool { return c.calls.Load() == 1 }, time.Second, time.Millisecond)
+	// A second scroll while the first page is in flight must be retained.
+	o.MoveWindow(id, project.ChatWindow{
+		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorMessage, MsgID: 5}, Before: 1, After: 2,
+	})
+	close(release)
+	d, ok := recvDelta(t, o.Deltas())
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	require.Equal(t, project.ChatOlder, d.Chat.Kind)
+	require.Empty(t, d.Chat.Messages)
+
+	d, ok = recvDelta(t, o.Deltas())
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	require.Equal(t, project.ChatReset, d.Chat.Kind)
+	assert.Equal(t, []int{4, 5, 6}, msgIDs(d.Chat.Contents.Messages))
+
+	d, ok = recvDelta(t, o.Deltas())
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	assert.Equal(t, project.ChatNewer, d.Chat.Kind)
+	assert.Equal(t, []int{7}, msgIDs(d.Chat.Messages))
+}
+
+func TestOwner_ReturnToNewestSupersedesAnInFlightMessageAnchor(t *testing.T) {
+	release := make(chan struct{})
+	c := &stubConn{
+		windows: map[int][]domain.Message{5: {{ID: 5, ChatID: 7, Date: time.Unix(5, 0)}}},
+		release: release,
+	}
+	o, s := newOwnerWithClient(t, c)
+	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
+	s.Store().SetMessages(7, []domain.Message{{ID: 100, ChatID: 7, Date: time.Unix(100, 0)}})
+	id := o.Subscribe(project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}})
+	for len(o.deltas) > 0 {
+		<-o.Deltas()
+	}
+
+	o.MoveWindow(id, project.ChatWindow{
+		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorMessage, MsgID: 5}, Before: 1, After: 1,
+	})
+	require.Eventually(t, func() bool { return c.calls.Load() == 1 }, time.Second, time.Millisecond)
+	o.MoveWindow(id, project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}})
+	close(release)
+
+	d, ok := recvDelta(t, o.Deltas())
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	assert.Equal(t, project.ChatOlder, d.Chat.Kind)
+	_, more := recvDelta(t, o.Deltas())
+	assert.False(t, more, "the completed old jump must not reset the live window")
+}
+
+func msgIDs(msgs []domain.Message) []int {
+	ids := make([]int, len(msgs))
+	for i, msg := range msgs {
+		ids[i] = msg.ID
+	}
+	return ids
 }
 
 // Rapid scroll-up fires many window moves. Without the guard each one starts its

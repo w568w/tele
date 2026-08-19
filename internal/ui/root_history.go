@@ -3,6 +3,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 	"github.com/sorokin-vladimir/tele/internal/ui/screens"
 )
@@ -30,6 +31,7 @@ func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 			m.owner.SetFocus(msg.ChatID)
 		}
 		m.chat.ClearPendingAction()
+		m.pendingJumpMsgID = 0
 		// Paint the title immediately; everything else arrives on the
 		// subscription's first delta, which is always a full Reset.
 		m.chat.SetHeader(screens.ChatHeader{ChatID: msg.ChatID, Title: msg.Title})
@@ -55,6 +57,15 @@ func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 			return m, nil
 		}
 		m.widenChatWindow()
+		return m, nil
+
+	case screens.LoadNewerMsg:
+		if msg.ChatID != m.currentChatID || m.chatWindow.Anchor.Kind != project.AnchorMessage ||
+			m.owner == nil || m.chatSub == 0 {
+			return m, nil
+		}
+		m.chatWindow.After += m.historyLimit
+		m.owner.MoveWindow(m.chatSub, m.chatWindow)
 		return m, nil
 
 	case PhotoReadyMsg:

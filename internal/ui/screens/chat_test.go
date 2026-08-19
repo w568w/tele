@@ -192,6 +192,20 @@ func TestChatModel_LoadMoreMsg_OnGoTop(t *testing.T) {
 	assert.Equal(t, 5, lm.OffsetID)
 }
 
+func TestChatModel_LoadNewerMsg_OnDownAtBottom(t *testing.T) {
+	m := screens.NewChatModel(80, 24)
+	openChat(m, &domain.Chat{ID: 42, Title: "Test"})
+	m.SetMessages([]domain.Message{{ID: 5, ChatID: 42, Text: "msg", Date: time.Now()}})
+
+	_, cmd := m.Update(keys.ActionMsg{Action: keys.ActionDown})
+
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(screens.LoadNewerMsg)
+	require.True(t, ok)
+	assert.Equal(t, int64(42), msg.ChatID)
+	assert.Equal(t, 5, msg.OffsetID)
+}
+
 func TestChatModel_NoLoadMore_WhenNotAtTop(t *testing.T) {
 	m := screens.NewChatModel(80, 3) // height=3 so viewport is small
 	chat := &domain.Chat{ID: 1, Title: "Y"}

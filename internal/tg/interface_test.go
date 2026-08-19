@@ -39,6 +39,10 @@ func (m *mockClient) GetHistory(_ context.Context, _ domain.Peer, _ int, _ int) 
 	return m.history, nil
 }
 
+func (m *mockClient) GetHistoryWindow(_ context.Context, _ domain.Peer, _ int, _ int, _ int) ([]domain.Message, error) {
+	return m.history, nil
+}
+
 func (m *mockClient) RefreshMessage(_ context.Context, _ domain.Peer, _ int) (domain.Message, error) {
 	return domain.Message{}, nil
 }

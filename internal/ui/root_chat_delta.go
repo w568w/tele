@@ -78,15 +78,25 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		m.chat.SetOutbox(c.Outbox)
 		m.chat.SetLoading(false)
 		m.chat.SetLoadError("")
+		var jumpCmd tea.Cmd
+		if m.pendingJumpMsgID != 0 {
+			if m.chat.ScrollToMessage(m.pendingJumpMsgID) {
+				jumpCmd = m.startMessageHighlight(m.pendingJumpMsgID)
+				m.pendingJumpMsgID = 0
+			} else {
+				m.chat.SetLoading(true)
+			}
+		}
 		if cmd := m.readReactionsOnScreen(c); cmd != nil {
-			return m, cmd
+			return m, tea.Batch(cmd, jumpCmd)
 		}
 		// The window was anchored on the first unread: it already opens on that
 		// message, so scrolling to it again would fight the anchor. Only the
 		// scroll is skipped. Returning early here instead also skipped the media
 		// fetch, the read pointer and the GIF animation, which left every photo
 		// in a chat with unread messages blank until the user scrolled.
-		anchored := c.AnchorMsgID != 0 && c.AnchorMsgID <= c.ReadInboxMaxID
+		anchored := c.AnchorMsgID != 0 &&
+			(m.chatWindow.Anchor.Kind == project.AnchorMessage || c.AnchorMsgID <= c.ReadInboxMaxID)
 		if !anchored && c.ReadInboxMaxID > 0 {
 			m.chat.ScrollToFirstUnread(c.ReadInboxMaxID)
 		}
@@ -94,7 +104,7 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		// thumbnail already cached from a prior visit; start its animation here
 		// since no key event will.
 		nm, gifCmd := m.ensureGifAnimForSelection()
-		return nm, tea.Batch(nm.markReadCmd(), nm.pendingDownloadCmds(c.Messages), gifCmd)
+		return nm, tea.Batch(nm.markReadCmd(), nm.pendingDownloadCmds(c.Messages), gifCmd, jumpCmd)
 
 	case project.ChatHeaderUpdate:
 		// Only the state around the window changed. The message list is left

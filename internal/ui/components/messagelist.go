@@ -170,7 +170,11 @@ func (ml *MessageList) ViewStart() int  { return ml.viewStart }
 func (ml *MessageList) LineOffset() int { return ml.lineOffset }
 func (ml *MessageList) ViewHeight() int { return ml.viewHeight }
 
-func (ml *MessageList) AtTop() bool               { return ml.viewStart == 0 && ml.lineOffset == 0 }
+func (ml *MessageList) AtTop() bool { return ml.viewStart == 0 && ml.lineOffset == 0 }
+func (ml *MessageList) AtBottom() bool {
+	idx, off := ml.positionAtBottom()
+	return ml.viewStart == idx && ml.lineOffset >= off
+}
 func (ml *MessageList) SetIsGroup(v bool)         { ml.isGroup = v; ml.invalidateHeights() }
 func (ml *MessageList) SetOutboxReadMaxID(id int) { ml.outboxReadMaxID = id }
 func (ml *MessageList) SetInboxReadMaxID(id int)  { ml.inboxReadMaxID = id }

@@ -18,6 +18,8 @@ type Client interface {
 	SearchContacts(ctx context.Context, q string, limit int) ([]domain.Chat, error)
 	GetDialogFilters(ctx context.Context) ([]domain.FolderFilter, error)
 	GetHistory(ctx context.Context, peer domain.Peer, offsetID int, limit int) ([]domain.Message, error)
+	// GetHistoryWindow returns a contiguous window around anchorID.
+	GetHistoryWindow(ctx context.Context, peer domain.Peer, anchorID, before, after int) ([]domain.Message, error)
 	// RefreshMessage re-fetches a single message to obtain fresh media file
 	// references (Telegram FileReferences expire).
 	RefreshMessage(ctx context.Context, peer domain.Peer, msgID int) (domain.Message, error)

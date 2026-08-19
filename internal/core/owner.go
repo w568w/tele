@@ -61,11 +61,13 @@ type Owner struct {
 	// has no call context of its own and outlives it either way.
 	ctx context.Context
 
-	// fetching guards one in-flight history fetch per subscription: rapid
-	// scroll-up would otherwise fire several identical fetches whose duplicate
-	// chunks stack into a repeating date range (issue #120).
-	fetchMu  sync.Mutex
-	fetching map[project.SubID]bool
+	// fetching guards one in-flight history fetch per subscription. Anchored
+	// moves keep only the latest queued window, while desiredAnchors prevents a
+	// late jump from overriding a later return to the live tail.
+	fetchMu        sync.Mutex
+	fetching       map[project.SubID]bool
+	pendingAnchors map[project.SubID]project.ChatWindow
+	desiredAnchors map[project.SubID]project.ChatWindow
 
 	// focus is what each attached client is showing. The notification policy's
 	// only view of clients (#192).
@@ -98,23 +100,25 @@ type Owner struct {
 
 func New(cfg *config.Config, log *zap.Logger, st *state.State, client Connection, n Notifier) *Owner {
 	o := &Owner{
-		log:           log,
-		state:         st,
-		client:        client,
-		notifier:      n,
-		authFlow:      internaltg.NewAuthFlow(),
-		deltas:        make(chan project.Delta, 256),
-		incoming:      make(chan Incoming, 32),
-		failures:      make(chan Failure, 32),
-		typing:        make(chan Typing, 32),
-		progress:      make(chan Progress, 32),
-		notifications: make(chan Notification, 32),
-		readyCh:       make(chan struct{}),
-		ctx:           context.Background(),
-		fetching:      make(map[project.SubID]bool),
-		focus:         newFocusRegistry(),
-		outboxWake:    make(chan struct{}, 1),
-		uploadCancels: make(map[string]context.CancelFunc),
+		log:            log,
+		state:          st,
+		client:         client,
+		notifier:       n,
+		authFlow:       internaltg.NewAuthFlow(),
+		deltas:         make(chan project.Delta, 256),
+		incoming:       make(chan Incoming, 32),
+		failures:       make(chan Failure, 32),
+		typing:         make(chan Typing, 32),
+		progress:       make(chan Progress, 32),
+		notifications:  make(chan Notification, 32),
+		readyCh:        make(chan struct{}),
+		ctx:            context.Background(),
+		fetching:       make(map[project.SubID]bool),
+		pendingAnchors: make(map[project.SubID]project.ChatWindow),
+		desiredAnchors: make(map[project.SubID]project.ChatWindow),
+		focus:          newFocusRegistry(),
+		outboxWake:     make(chan struct{}, 1),
+		uploadCancels:  make(map[string]context.CancelFunc),
 	}
 	o.cfg.Store(cfg)
 	// Built from the owner, not from the store alone: the projection reads the

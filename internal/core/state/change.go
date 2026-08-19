@@ -49,6 +49,8 @@ const (
 	// after Telegram expired the old one. Nothing the user can see changes; the
 	// chat window rebuilds so the next fetch addresses the fresh reference.
 	ChangeMediaRef
+	// ChangeReplyPreview reports that an out-of-window reply target was resolved.
+	ChangeReplyPreview
 )
 
 // Change describes one applied difference in domain state, carrying what a

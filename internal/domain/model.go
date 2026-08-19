@@ -254,7 +254,8 @@ type Message struct {
 	// GroupedID is Telegram's album key: album parts share the same non-zero
 	// grouped_id. 0 means the message is not part of an album.
 	GroupedID    int64
-	ReplyToMsgID int        // 0 if not a reply
+	ReplyToMsgID int // 0 if not a reply
+	ReplyPreview *ReplyPreview
 	EditDate     *time.Time // nil if not edited
 	Reactions    []Reaction
 	// HasUnreadReactions is true when the raw message carried at least one recent
@@ -268,6 +269,15 @@ type Message struct {
 	// LocalMedia describes the files of a queued media send. Set only on the
 	// bubble a client draws for an outbox entry; nil for real messages.
 	LocalMedia *LocalMedia
+}
+
+// ReplyPreview carries the original message fields needed by a reply bubble
+// when that message is outside the loaded history window.
+type ReplyPreview struct {
+	SenderID   int64
+	SenderName string
+	Text       string
+	IsOut      bool
 }
 
 // LocalMedia describes the files of a queued media send so the pending bubble

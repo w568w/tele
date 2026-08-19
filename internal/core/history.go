@@ -2,11 +2,13 @@ package core
 
 import (
 	"context"
+	"sort"
 
 	"go.uber.org/zap"
 
 	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/domain"
+	"github.com/sorokin-vladimir/tele/internal/telerr"
 )
 
 // MergeOlder merges an older history chunk in front of the messages already
@@ -49,35 +51,318 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 		return
 	}
 	existing := o.state.Store().Messages(w.ChatID)
-	// Page backwards from the oldest message held; zero means "from the newest",
-	// which is what an empty window needs.
+	contents := project.BuildChat(o.reader(), w)
+	merged := existing
+	candidates := contents.Messages
+	historyChanged := false
 	offsetID := 0
-	if len(existing) > 0 {
-		offsetID = existing[0].ID
+
+	if needsBackfill(contents, w) {
+		fetched, offset, err := o.fetchHistoryPage(ctx, chat.Peer, w, existing)
+		if err != nil {
+			o.log.Warn("history backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
+			// The client asked for a window it cannot fill itself, so it has to be
+			// told: otherwise the pane waits on a load that will never arrive.
+			o.publishFailure(Failure{ChatID: w.ChatID, Op: "load history", Err: err})
+			return
+		}
+		offsetID = offset
+		merged = MergeOlder(fetched, existing)
+		historyChanged = len(merged) != len(existing)
+		candidates = append(candidates, fetched...)
 	}
-	// Read here rather than kept in a field: a changed history limit applies to
-	// the next backfill, which is this one.
-	fetched, err := o.client.GetHistory(ctx, chat.Peer, offsetID, o.Config().UI.HistoryLimit)
+
+	var previewChanged bool
+	merged, previewChanged, err := o.hydrateReplyPreviews(ctx, chat.Peer, merged, candidates)
 	if err != nil {
-		o.log.Warn("history backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
-		// The client asked for a window it cannot fill itself, so it has to be
-		// told: otherwise the pane waits on a load that will never arrive.
-		o.publishFailure(Failure{ChatID: w.ChatID, Op: "load history", Err: err})
+		o.log.Warn("reply preview backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
+	}
+	if !historyChanged && !previewChanged {
 		return
 	}
-	merged := MergeOlder(fetched, existing)
 	o.log.Debug("history backfill",
 		zap.Int64("chat", w.ChatID),
 		zap.Int("offset_id", offsetID),
 		zap.Int("held", len(existing)),
-		zap.Int("fetched", len(fetched)),
 		zap.Int("merged", len(merged)),
 		zap.Int("want", w.Before+w.After+1))
-	if len(merged) == len(existing) {
-		// Every fetched message was already held: the chat has no more history.
+	o.state.ApplyHistory(w.ChatID, merged)
+}
+
+// fetchHistoryPage pages normally from the oldest held message. A message
+// anchor that is not held is fetched directly first, then prefixed with its
+// older context; walking every intervening page would make a jump arbitrarily
+// slow in a long chat.
+func (o *Owner) fetchHistoryPage(ctx context.Context, peer domain.Peer, w project.ChatWindow, existing []domain.Message) ([]domain.Message, int, error) {
+	if w.Anchor.Kind == project.AnchorMessage && !hasMessage(existing, w.Anchor.MsgID) {
+		window, err := o.fetchAnchorWindow(ctx, peer, w)
+		return window, w.Anchor.MsgID, err
+	}
+
+	offsetID := 0
+	if len(existing) > 0 {
+		offsetID = existing[0].ID
+	}
+	fetched, err := o.client.GetHistory(ctx, peer, offsetID, o.Config().UI.HistoryLimit)
+	return fetched, offsetID, err
+}
+
+func (o *Owner) fetchAnchorWindow(ctx context.Context, peer domain.Peer, w project.ChatWindow) ([]domain.Message, error) {
+	window, err := o.client.GetHistoryWindow(ctx, peer, w.Anchor.MsgID, w.Before, w.After)
+	if err != nil || hasMessage(window, w.Anchor.MsgID) {
+		return window, err
+	}
+	target, err := o.client.RefreshMessage(ctx, peer, w.Anchor.MsgID)
+	if err != nil {
+		return nil, err
+	}
+	return mergeHistoryRanges([]domain.Message{target}, window), nil
+}
+
+// moveAnchoredWindow fills only contiguous pages around a message anchor, then
+// moves the projection. Deferring the move matters: the store may also contain
+// a distant live tail, which must not be rendered as the next message across an
+// unfetched gap.
+func (o *Owner) moveAnchoredWindow(ctx context.Context, id project.SubID, w project.ChatWindow) {
+	defer o.endFetch(id)
+
+	chat, ok := o.state.Store().GetChat(w.ChatID)
+	if !ok {
 		return
 	}
-	o.state.ApplyHistory(w.ChatID, merged)
+	current, ok := o.registry.Window(id)
+	if !ok {
+		return
+	}
+
+	var segment []domain.Message
+	if prev, ok := current.(project.ChatWindow); ok && prev.ChatID == w.ChatID &&
+		prev.Anchor.Kind == project.AnchorMessage && prev.Anchor.MsgID == w.Anchor.MsgID {
+		contents := project.BuildChat(o.reader(), prev)
+		if contents.AnchorMsgID == w.Anchor.MsgID {
+			segment = contents.Messages
+		}
+	}
+
+	var fetched []domain.Message
+	if len(segment) == 0 {
+		window, err := o.fetchAnchorWindow(ctx, chat.Peer, w)
+		if err != nil {
+			o.failAnchoredWindow(w, err)
+			return
+		}
+		fetched = window
+		segment = fetched
+	} else {
+		before, after, _ := anchorCounts(segment, w.Anchor.MsgID)
+		if w.Before > before {
+			limit := min(w.Before-before, o.Config().UI.HistoryLimit)
+			if limit <= 0 {
+				limit = w.Before - before
+			}
+			older, err := o.client.GetHistory(ctx, chat.Peer, segment[0].ID, limit)
+			if err != nil {
+				o.failAnchoredWindow(w, err)
+				return
+			}
+			fetched = append(fetched, older...)
+		}
+		if w.After > after {
+			limit := min(w.After-after, o.Config().UI.HistoryLimit)
+			if limit <= 0 {
+				limit = w.After - after
+			}
+			newer, err := o.client.GetHistoryWindow(ctx, chat.Peer, segment[len(segment)-1].ID, 0, limit)
+			if err != nil {
+				o.failAnchoredWindow(w, err)
+				return
+			}
+			fetched = append(fetched, newer...)
+		}
+		segment = mergeHistoryRanges(fetched, segment)
+	}
+
+	before, after, ok := anchorCounts(segment, w.Anchor.MsgID)
+	if !ok {
+		o.failAnchoredWindow(w, &telerr.Error{Kind: telerr.NotFound, Op: "load message anchor"})
+		return
+	}
+	safeWindow := w
+	safeWindow.Before = min(w.Before, before)
+	safeWindow.After = min(w.After, after)
+
+	existing := o.state.Store().Messages(w.ChatID)
+	merged := mergeHistoryRanges(segment, existing)
+	var previewChanged bool
+	var err error
+	merged, previewChanged, err = o.hydrateReplyPreviews(ctx, chat.Peer, merged, segment)
+	if err != nil {
+		o.log.Warn("reply preview backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
+	}
+	if len(merged) != len(existing) || previewChanged {
+		o.state.ApplyHistory(w.ChatID, merged)
+	}
+	o.publishAnchoredWindow(id, safeWindow)
+}
+
+func (o *Owner) queueAnchoredWindow(id project.SubID, w project.ChatWindow) {
+	o.fetchMu.Lock()
+	o.desiredAnchors[id] = w
+	if o.fetching[id] {
+		o.pendingAnchors[id] = w
+		o.fetchMu.Unlock()
+		return
+	}
+	o.fetching[id] = true
+	o.fetchMu.Unlock()
+	go o.moveAnchoredWindow(o.ctx, id, w)
+}
+
+func (o *Owner) publishAnchoredWindow(id project.SubID, w project.ChatWindow) {
+	o.fetchMu.Lock()
+	desired, ok := o.desiredAnchors[id]
+	if ok && desired.ChatID == w.ChatID && desired.Anchor == w.Anchor {
+		o.publish(o.registry.MoveWindow(id, w))
+	}
+	o.fetchMu.Unlock()
+}
+
+func (o *Owner) failAnchoredWindow(w project.ChatWindow, err error) {
+	o.log.Warn("message anchor load failed", zap.Int64("chat", w.ChatID),
+		zap.Int("msg_id", w.Anchor.MsgID), zap.Error(err))
+	o.publishFailure(Failure{ChatID: w.ChatID, Op: "load history", Err: err})
+}
+
+func anchorCounts(msgs []domain.Message, anchorID int) (before, after int, ok bool) {
+	for i, msg := range msgs {
+		if msg.ID == anchorID {
+			return i, len(msgs) - i - 1, true
+		}
+	}
+	return 0, 0, false
+}
+
+func mergeHistoryRanges(incoming, existing []domain.Message) []domain.Message {
+	seen := make(map[int]struct{}, len(existing))
+	out := append([]domain.Message(nil), existing...)
+	for _, msg := range existing {
+		seen[msg.ID] = struct{}{}
+	}
+	for _, msg := range incoming {
+		if _, ok := seen[msg.ID]; ok {
+			continue
+		}
+		seen[msg.ID] = struct{}{}
+		out = append(out, msg)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Date.Equal(out[j].Date) {
+			return out[i].Date.Before(out[j].Date)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func hasMessage(msgs []domain.Message, id int) bool {
+	for _, msg := range msgs {
+		if msg.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func needsReplyPreviews(msgs []domain.Message) bool {
+	for _, msg := range msgs {
+		if msg.ReplyToMsgID != 0 && msg.ReplyPreview == nil && !hasMessage(msgs, msg.ReplyToMsgID) {
+			return true
+		}
+	}
+	return false
+}
+
+// hydrateReplyPreviews resolves only the originals referenced by candidates.
+// The originals are not inserted into history: doing so would turn two distant
+// ranges into one apparently contiguous range and break paging.
+func (o *Owner) hydrateReplyPreviews(ctx context.Context, peer domain.Peer, all, candidates []domain.Message) ([]domain.Message, bool, error) {
+	originals := make(map[int]domain.Message, len(all))
+	for _, msg := range all {
+		originals[msg.ID] = msg
+	}
+	candidateIDs := make(map[int]struct{}, len(candidates))
+	missing := make(map[int]struct{})
+	for _, msg := range candidates {
+		candidateIDs[msg.ID] = struct{}{}
+		if msg.ReplyToMsgID == 0 || msg.ReplyPreview != nil {
+			continue
+		}
+		if _, ok := originals[msg.ReplyToMsgID]; !ok {
+			missing[msg.ReplyToMsgID] = struct{}{}
+		}
+	}
+
+	ids := make([]int, 0, len(missing))
+	for id := range missing {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	var fetchErr error
+	if len(ids) > 0 {
+		var fetched []domain.Message
+		fetched, fetchErr = o.client.RefreshMessages(ctx, peer, ids)
+		for _, msg := range fetched {
+			originals[msg.ID] = msg
+		}
+	}
+
+	changed := false
+	for i := range all {
+		if _, ok := candidateIDs[all[i].ID]; !ok || all[i].ReplyPreview != nil {
+			continue
+		}
+		original, ok := originals[all[i].ReplyToMsgID]
+		if !ok {
+			continue
+		}
+		all[i].ReplyPreview = replyPreview(original)
+		changed = true
+	}
+	return all, changed, fetchErr
+}
+
+func replyPreview(msg domain.Message) *domain.ReplyPreview {
+	return &domain.ReplyPreview{
+		SenderID: msg.SenderID, SenderName: msg.SenderName, Text: msg.Text, IsOut: msg.IsOut,
+	}
+}
+
+func (o *Owner) hydrateIncomingReply(msg domain.Message) {
+	if o.client == nil {
+		return
+	}
+	chat, ok := o.state.Store().GetChat(msg.ChatID)
+	if !ok {
+		return
+	}
+	var original domain.Message
+	found := false
+	for _, stored := range o.state.Store().Messages(msg.ChatID) {
+		if stored.ID == msg.ReplyToMsgID {
+			original, found = stored, true
+			break
+		}
+	}
+	if !found {
+		var err error
+		original, err = o.client.RefreshMessage(o.ctx, chat.Peer, msg.ReplyToMsgID)
+		if err != nil {
+			o.log.Warn("reply preview fetch failed",
+				zap.Int64("chat", msg.ChatID), zap.Int("msg_id", msg.ReplyToMsgID), zap.Error(err))
+			return
+		}
+	}
+	o.state.ApplyReplyPreview(msg.ChatID, msg.ID, *replyPreview(original))
 }
 
 func (o *Owner) beginFetch(id project.SubID) bool {
@@ -92,6 +377,12 @@ func (o *Owner) beginFetch(id project.SubID) bool {
 
 func (o *Owner) endFetch(id project.SubID) {
 	o.fetchMu.Lock()
-	defer o.fetchMu.Unlock()
+	if next, ok := o.pendingAnchors[id]; ok {
+		delete(o.pendingAnchors, id)
+		o.fetchMu.Unlock()
+		go o.moveAnchoredWindow(o.ctx, id, next)
+		return
+	}
 	delete(o.fetching, id)
+	o.fetchMu.Unlock()
 }
