@@ -110,7 +110,7 @@ func TestStatusBar_AttachStagedNormal_CaptionDrop(t *testing.T) {
 	sb.SetAttachStaged(true)
 	out := strip(sb.View())
 	assert.Contains(t, out, "caption")
-	assert.Contains(t, out, "drop file")
+	assert.Contains(t, out, "cancel pending")
 }
 
 func TestStatusBar_PickerHints(t *testing.T) {
@@ -137,7 +137,7 @@ func TestStatusBar_StagedAttachmentHints(t *testing.T) {
 	assert.Contains(t, insertView, "ctrl+t photo/file")
 
 	sb.SetMode(keys.ModeNormal)
-	assert.Contains(t, strip(sb.View()), "x drop file")
+	assert.Contains(t, strip(sb.View()), "x cancel pending")
 }
 
 func TestStatusBar_ChatlistHints(t *testing.T) {
