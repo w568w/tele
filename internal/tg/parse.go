@@ -361,16 +361,19 @@ func newestUnreadReaction(mr tg.MessageReactions) (emoji string, date time.Time,
 func convertReactions(mr tg.MessageReactions) []domain.Reaction {
 	out := make([]domain.Reaction, 0, len(mr.Results))
 	for _, rc := range mr.Results {
-		emoji, ok := rc.Reaction.(*tg.ReactionEmoji)
-		if !ok {
+		reaction := domain.Reaction{Count: rc.Count}
+		switch v := rc.Reaction.(type) {
+		case *tg.ReactionEmoji:
+			reaction.Emoji = v.Emoticon
+		case *tg.ReactionCustomEmoji:
+			reaction.Emoji = "◈"
+			reaction.CustomEmojiID = v.DocumentID
+		default:
 			continue
 		}
 		_, isChosen := rc.GetChosenOrder()
-		out = append(out, domain.Reaction{
-			Emoji:    emoji.Emoticon,
-			Count:    rc.Count,
-			IsChosen: isChosen,
-		})
+		reaction.IsChosen = isChosen
+		out = append(out, reaction)
 	}
 	return out
 }

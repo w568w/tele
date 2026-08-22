@@ -33,6 +33,8 @@ type Reaction struct {
 	Emoji    string
 	Count    int
 	IsChosen bool
+
+	CustomEmojiID int64
 }
 
 type MessageEntity struct {

@@ -48,7 +48,9 @@ func (c *GotdClient) RefreshMessages(ctx context.Context, peer domain.Peer, msgI
 			c.log.Error("RefreshMessages failed", zap.Error(err))
 			return err
 		}
-		found := selectMessagesByIDs(parseHistory(result, peer.ID), msgIDs)
+		parsed := parseHistory(result, peer.ID)
+		c.hydrateCustomReactions(ctx, api, parsed)
+		found := selectMessagesByIDs(parsed, msgIDs)
 		if len(found) == 0 {
 			return &telerr.Error{Kind: telerr.NotFound, Op: "refresh messages", Detail: "none found"}
 		}
@@ -123,6 +125,7 @@ func (c *GotdClient) getHistory(ctx context.Context, peer domain.Peer, req *tg.M
 			return err
 		}
 		msgs = parseHistory(result, peer.ID)
+		c.hydrateCustomReactions(ctx, api, msgs)
 		// Seed the sender-name cache from the fully-resolved history so a later
 		// live update that omits a sender's entity still resolves the name (#161).
 		for _, m := range msgs {

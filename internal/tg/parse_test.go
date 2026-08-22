@@ -49,6 +49,17 @@ func TestConvertMessage_HasUnreadReactions(t *testing.T) {
 	assert.False(t, msg2.HasUnreadReactions)
 }
 
+func TestConvertReactions_PreservesCustomEmoji(t *testing.T) {
+	got := convertReactions(tg.MessageReactions{Results: []tg.ReactionCount{{
+		Reaction: &tg.ReactionCustomEmoji{DocumentID: 77},
+		Count:    3,
+	}}})
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(77), got[0].CustomEmojiID)
+	assert.NotEmpty(t, got[0].Emoji, "custom reactions need a visible fallback before alt hydration")
+	assert.Equal(t, 3, got[0].Count)
+}
+
 func TestConvertMessage_Mentioned(t *testing.T) {
 	raw := &tg.Message{ID: 7, Date: 1700000000, Mentioned: true, Message: "@you hi"}
 	out, ok := convertMessage(raw, 1)

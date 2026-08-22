@@ -37,6 +37,9 @@ type GotdClient struct {
 	suppressMu   sync.Mutex
 	suppressIDs  map[int]struct{}
 	stateStorage updates.StateStorage
+
+	customEmojiMu sync.RWMutex
+	customEmoji   map[int64]string
 	// senderNames remembers userID -> display name across updates and history
 	// fetches so a live update that omits the sender's entity still resolves the
 	// author instead of rendering "?" (#161).
@@ -58,6 +61,8 @@ func NewGotdClient(log *zap.Logger, stateStorage updates.StateStorage, trace boo
 		suppressIDs:  make(map[int]struct{}),
 		stateStorage: stateStorage,
 		senderNames:  newNameCache(),
+
+		customEmoji: make(map[int64]string),
 	}
 }
 
@@ -145,12 +150,14 @@ func (c *GotdClient) Connect(ctx context.Context, cfg *config.Config, af *AuthFl
 			case <-ctx.Done():
 				return
 			case evt := <-c.mustDeliver:
+				evt = c.hydrateEventCustomEmoji(ctx, evt)
 				select {
 				case c.updates <- evt:
 				case <-ctx.Done():
 					return
 				}
 			case evt := <-c.droppable:
+				evt = c.hydrateEventCustomEmoji(ctx, evt)
 				select {
 				case c.updates <- evt:
 				case <-ctx.Done():
