@@ -512,6 +512,12 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleVideoProbed(msg)
 	case videoTickMsg:
 		return m.handleVideoTick(msg)
+	case videoFrameEncodedMsg:
+		return m.handleVideoFrameEncoded(msg)
+	case videoFrameTransmittedMsg:
+		return m.handleVideoFrameTransmitted(msg)
+	case uv.KittyGraphicsEvent:
+		return m.handleVideoGraphicsResponse(msg)
 	case reactionFailedMsg:
 		return m.handleReactionFailed(msg)
 	case deleteMsgFailedMsg:

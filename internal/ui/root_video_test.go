@@ -2,13 +2,17 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi/kitty"
 
 	"github.com/sorokin-vladimir/tele/internal/store"
 	"github.com/sorokin-vladimir/tele/internal/ui/media"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUseInAppVideoPlayer(t *testing.T) {
@@ -52,6 +56,52 @@ func TestHandleVideoTick_StaleGenIgnored(t *testing.T) {
 	assert.Nil(t, cmd, "a tick from a previous generation must not re-arm")
 }
 
+func TestVideoFrame_WaitsForKittyAckBeforeAdvancing(t *testing.T) {
+	m := NewRootModel(store.NewMemory(), 50, false)
+	oldFrame := solidImage(8, 8)
+	newFrame := solidImage(16, 9)
+	m.videoPlayer = &videoPlayer{
+		playing:      true,
+		gen:          3,
+		frame:        oldFrame,
+		kittyID:      9,
+		transmitting: true,
+		nextFrameAt:  time.Now(),
+	}
+
+	m, cmd := m.handleVideoFrameEncoded(videoFrameEncodedMsg{
+		gen: 3, id: 9, frame: newFrame, seq: "frame", cleanup: func() {},
+	})
+	require.NotNil(t, cmd)
+	assert.Same(t, oldFrame, m.videoPlayer.frame, "keep the last frame visible while Kitty is processing the next one")
+	assert.Same(t, newFrame, m.videoPlayer.pendingFrame)
+	assert.Zero(t, m.videoPlayer.posFrames)
+
+	m, next := m.handleVideoGraphicsResponse(uv.KittyGraphicsEvent{
+		Options: kitty.Options{ID: 9}, Payload: []byte("OK"),
+	})
+	require.NotNil(t, next, "a Kitty acknowledgement schedules the next frame")
+	assert.Same(t, newFrame, m.videoPlayer.frame)
+	assert.Nil(t, m.videoPlayer.pendingFrame)
+	assert.Equal(t, 1, m.videoPlayer.posFrames)
+	assert.False(t, m.videoPlayer.transmitting)
+}
+
+func TestVideoFrame_KittyErrorStopsPlayback(t *testing.T) {
+	m := NewRootModel(store.NewMemory(), 50, false)
+	m.videoPlayer = &videoPlayer{playing: true, transmitting: true, kittyID: 9}
+
+	m, cmd := m.handleVideoGraphicsResponse(uv.KittyGraphicsEvent{
+		Options: kitty.Options{ID: 9}, Payload: []byte("EINVAL:bad frame"),
+	})
+	require.NotNil(t, cmd)
+	assert.False(t, m.videoPlayer.playing)
+	assert.False(t, m.videoPlayer.transmitting)
+	status, ok := cmd().(StatusErrMsg)
+	require.True(t, ok)
+	assert.Contains(t, status.Text, "EINVAL:bad frame")
+}
+
 func TestModalBorder_WidthAndLabels(t *testing.T) {
 	line := modalBorder("┌", "─", "┐", "─ Alice ", " 0:00 ", 40)
 	assert.Equal(t, 42, lipgloss.Width(line), "border width must be innerW + 2 corners")
@@ -83,6 +133,6 @@ func TestVideoLoadingSpinnerGlyph(t *testing.T) {
 func TestCloseVideoPlayer_Clears(t *testing.T) {
 	m := NewRootModel(store.NewMemory(), 50, false)
 	m.videoPlayer = &videoPlayer{docID: 5}
-	m = m.closeVideoPlayer()
+	m, _ = m.closeVideoPlayer()
 	assert.Nil(t, m.videoPlayer, "closing clears the overlay")
 }

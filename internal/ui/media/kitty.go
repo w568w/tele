@@ -2,8 +2,12 @@ package media
 
 import (
 	"bytes"
+	"compress/zlib"
+	"encoding/base64"
 	"fmt"
 	"image"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -181,6 +185,91 @@ func TransmitSeq(id uint32, img image.Image, cols, rows int) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// TransmitAnimationFrameSeq replaces the displayed root animation frame while
+// preserving the image and its virtual placement. Retransmitting image data
+// with the same id would delete that placement under the Kitty protocol.
+func TransmitAnimationFrameSeq(id uint32, img image.Image, cols int) (string, func(), error) {
+	img = scaleForTransmit(img, cols)
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	rgb := make([]byte, w*h*3)
+	if src, ok := img.(*image.NRGBA); ok {
+		for y, dst := bounds.Min.Y, 0; y < bounds.Max.Y; y++ {
+			row := src.Pix[src.PixOffset(bounds.Min.X, y):]
+			for x := 0; x < w; x++ {
+				rgb[dst] = row[x*4]
+				rgb[dst+1] = row[x*4+1]
+				rgb[dst+2] = row[x*4+2]
+				dst += 3
+			}
+		}
+	} else {
+		for y, dst := bounds.Min.Y, 0; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, g, b, _ := img.At(x, y).RGBA()
+				rgb[dst] = byte(r >> 8)
+				rgb[dst+1] = byte(g >> 8)
+				rgb[dst+2] = byte(b >> 8)
+				dst += 3
+			}
+		}
+	}
+
+	data := rgb
+	var compressed bytes.Buffer
+	zw, err := zlib.NewWriterLevel(&compressed, zlib.BestSpeed)
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := zw.Write(rgb); err != nil {
+		return "", nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return "", nil, err
+	}
+	compressedData := compressed.Len() < len(rgb)
+	if compressedData {
+		data = compressed.Bytes()
+	}
+
+	shm, err := os.CreateTemp("/dev/shm", "tele-kitty-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create Kitty shared memory: %w", err)
+	}
+	shmPath := shm.Name()
+	cleanup := func() { _ = os.Remove(shmPath) }
+	if _, err := shm.Write(data); err != nil {
+		_ = shm.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("write Kitty shared memory: %w", err)
+	}
+	if err := shm.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("close Kitty shared memory: %w", err)
+	}
+
+	opts := &kitty.Options{
+		Action:       kitty.Frame,
+		ID:           int(id),
+		Format:       kitty.RGB,
+		ImageWidth:   w,
+		ImageHeight:  h,
+		Transmission: kitty.SharedMemory,
+		Size:         len(data),
+		Rows:         1, // r=1 edits the root frame.
+		OffsetX:      1, // X=1 replaces pixels instead of alpha blending.
+		// Kitty 0.45.0-0.48.2 incorrectly reads C instead of X for a=f.
+		DoNotMoveCursor: true,
+	}
+	if compressedData {
+		opts.Compression = kitty.Zlib
+	}
+	shmName := "/" + filepath.Base(shmPath)
+	payload := []byte(base64.StdEncoding.EncodeToString([]byte(shmName)))
+	options := append(opts.Options(), "N=1") // video frames are transient cache data.
+	return ansi.KittyGraphics(payload, options...), cleanup, nil
 }
 
 // KittyRenderer emits Unicode-placeholder grids that reference images already

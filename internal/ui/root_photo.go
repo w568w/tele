@@ -176,7 +176,9 @@ func (m RootModel) pageModal(delta int) (RootModel, tea.Cmd) {
 		cmds = append(cmds, c)
 	}
 	if m.videoPlayer != nil {
-		m = m.closeVideoPlayer()
+		var c tea.Cmd
+		m, c = m.closeVideoPlayer()
+		cmds = append(cmds, c)
 	}
 
 	switch {

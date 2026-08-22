@@ -50,6 +50,25 @@ type videoProbedMsg struct {
 // videoTickMsg advances the modal video by one frame. gen drops stale ticks.
 type videoTickMsg struct{ gen int }
 
+// videoFrameEncodedMsg carries one complete Kitty frame sequence. Keeping the
+// sequence whole lets the update loop serialize terminal writes between frames.
+type videoFrameEncodedMsg struct {
+	gen     int
+	id      uint32
+	frame   image.Image
+	seq     string
+	cleanup func()
+	err     error
+}
+
+// videoFrameTransmittedMsg advances the first frame after its placement command
+// has been queued. Later frames wait for KittyGraphicsEvent acknowledgements.
+type videoFrameTransmittedMsg struct {
+	gen   int
+	id    uint32
+	frame image.Image
+}
+
 type FullPhotoReadyMsg struct {
 	PhotoID int64
 	Image   image.Image

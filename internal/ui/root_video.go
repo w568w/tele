@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	vmedia "github.com/sorokin-vladimir/tele/internal/media"
@@ -34,12 +35,18 @@ type videoPlayer struct {
 	frame   image.Image
 	cols    int
 	rows    int
+	kittyID uint32
 
 	source     *vmedia.FrameSource
 	playing    bool
 	posFrames  int // frames shown since the loop's start (position = posFrames/videoFPS)
 	gen        int // bumped on (re)open/close to drop stale ticks
 	spinnerIdx int // loading-spinner glyph index while no frame has been shown
+
+	transmitting bool
+	pendingFrame image.Image
+	pendingClean func()
+	nextFrameAt  time.Time
 	// album is the full set of media parts when this video belongs to an album,
 	// empty for a lone video; albumIdx is the index of the shown part. They drive
 	// left/right paging across the album.
@@ -53,7 +60,7 @@ const videoFPS = 15
 var videoFrameInterval = time.Second / videoFPS
 
 func videoTickCmd(gen int) tea.Cmd {
-	return tea.Tick(videoFrameInterval, func(time.Time) tea.Msg { return videoTickMsg{gen: gen} })
+	return videoTickAfterCmd(gen, videoFrameInterval)
 }
 
 // fmtClock renders whole seconds as m:ss.
@@ -132,22 +139,24 @@ func probeVideoCmd(ctx context.Context, docID int64, path string) tea.Cmd {
 	}
 }
 
-// videoPlayerKey is the stable KittyStore key for the modal's image id, distinct
-// from any message photo/document id.
-const videoPlayerKey int64 = -1000
-
 func mustCellW() float64 { w, _ := media.CellPx(); return w }
 func mustCellH() float64 { _, h := media.CellPx(); return h }
 
-// transmitFrameToID writes a Kitty transmit-and-place for a specific id via
-// tea.Raw (approach A: overwriting the same id updates the placement in place).
-func transmitFrameToID(id uint32, frame image.Image, cols, rows int) tea.Cmd {
+// encodeVideoFrameCmd prepares one complete Kitty frame sequence off the update
+// loop. The result is written in order by handleVideoFrameEncoded.
+func encodeVideoFrameCmd(gen int, id uint32, frame image.Image, cols, rows int, initial bool) tea.Cmd {
 	return func() tea.Msg {
-		seq, err := media.TransmitSeq(id, frame, cols, rows)
-		if err != nil {
-			return nil
+		var seq string
+		var cleanup func()
+		var err error
+		if initial {
+			seq, err = media.TransmitSeq(id, frame, cols, rows)
+		} else {
+			seq, cleanup, err = media.TransmitAnimationFrameSeq(id, frame, cols)
 		}
-		return tea.Raw(seq)()
+		return videoFrameEncodedMsg{
+			gen: gen, id: id, frame: frame, seq: seq, cleanup: cleanup, err: err,
+		}
 	}
 }
 
@@ -174,7 +183,10 @@ func (m RootModel) selectedVideoInfo() (int, string) {
 // while the file downloads) and kicks off the download.
 func (m RootModel) openVideoModal(ref domain.DocumentRef, msgID, durSecs int, sender string) (RootModel, tea.Cmd) {
 	cols, rows := m.videoModalBox(16, 9) // provisional box; resized once probed
-	m.videoPlayer = &videoPlayer{docID: ref.ID, durSecs: durSecs, title: sender, cols: cols, rows: rows}
+	m.videoPlayer = &videoPlayer{
+		docID: ref.ID, durSecs: durSecs, title: sender, cols: cols, rows: rows,
+		kittyID: m.kittyStore.NewID(),
+	}
 	return m, saveVideoFileCmd(m.ctx, m.owner, m.currentChatID, msgID, ref.ID, m.tmpDir)
 }
 
@@ -224,7 +236,7 @@ func (m RootModel) handleVideoProbed(msg videoProbedMsg) (RootModel, tea.Cmd) {
 // by reopening the source. Pausing stops re-arming (ffmpeg backpressures).
 func (m RootModel) handleVideoTick(msg videoTickMsg) (RootModel, tea.Cmd) {
 	vp := m.videoPlayer
-	if vp == nil || vp.source == nil || msg.gen != vp.gen || !vp.playing {
+	if vp == nil || vp.source == nil || msg.gen != vp.gen || !vp.playing || vp.transmitting {
 		return m, nil
 	}
 	frame, ok := vp.source.Next()
@@ -241,11 +253,99 @@ func (m RootModel) handleVideoTick(msg videoTickMsg) (RootModel, tea.Cmd) {
 		vp.posFrames = 0
 		return m, videoTickCmd(vp.gen)
 	}
+	vp.transmitting = true
+	vp.nextFrameAt = time.Now().Add(videoFrameInterval)
+	return m, encodeVideoFrameCmd(vp.gen, vp.kittyID, frame, vp.cols, vp.rows, vp.frame == nil)
+}
+
+// handleVideoFrameEncoded queues a whole frame as one terminal write. Animation
+// updates stay pending until Kitty acknowledges the shared-memory command.
+func (m RootModel) handleVideoFrameEncoded(msg videoFrameEncodedMsg) (RootModel, tea.Cmd) {
+	vp := m.videoPlayer
+	if vp == nil || msg.gen != vp.gen || !vp.transmitting || msg.id != vp.kittyID {
+		if msg.cleanup != nil {
+			msg.cleanup()
+		}
+		return m, nil
+	}
+	if msg.err != nil {
+		if msg.cleanup != nil {
+			msg.cleanup()
+		}
+		vp.transmitting = false
+		vp.playing = false
+		return m, func() tea.Msg { return errStatus("video frame", msg.err) }
+	}
+	if msg.cleanup != nil {
+		vp.pendingFrame = msg.frame
+		vp.pendingClean = msg.cleanup
+		return m, func() tea.Msg { return tea.Raw(msg.seq)() }
+	}
+	return m, tea.Sequence(
+		func() tea.Msg { return tea.Raw(msg.seq)() },
+		func() tea.Msg {
+			return videoFrameTransmittedMsg{gen: msg.gen, id: msg.id, frame: msg.frame}
+		},
+	)
+}
+
+// handleVideoFrameTransmitted makes the initial frame visible. Animation updates
+// are completed by handleVideoGraphicsResponse instead.
+func (m RootModel) handleVideoFrameTransmitted(msg videoFrameTransmittedMsg) (RootModel, tea.Cmd) {
+	vp := m.videoPlayer
+	if vp == nil || msg.gen != vp.gen || !vp.transmitting || msg.id != vp.kittyID {
+		return m, nil
+	}
+	return m.completeVideoFrame(msg.frame)
+}
+
+func (m RootModel) completeVideoFrame(frame image.Image) (RootModel, tea.Cmd) {
+	vp := m.videoPlayer
+	if vp == nil {
+		return m, nil
+	}
 	vp.frame = frame
+	vp.pendingFrame = nil
+	vp.pendingClean = nil
 	vp.posFrames++
-	m.imageCache.Add(videoPlayerKey, frame)
-	id := m.kittyStore.IDFor(videoPlayerKey)
-	return m, tea.Batch(transmitFrameToID(id, frame, vp.cols, vp.rows), videoTickCmd(vp.gen))
+	vp.transmitting = false
+	if vp.playing {
+		return m, videoTickAfterCmd(vp.gen, time.Until(vp.nextFrameAt))
+	}
+	return m, nil
+}
+
+func (m RootModel) handleVideoGraphicsResponse(msg uv.KittyGraphicsEvent) (RootModel, tea.Cmd) {
+	vp := m.videoPlayer
+	if vp == nil || msg.Options.ID != int(vp.kittyID) {
+		return m, nil
+	}
+	if string(msg.Payload) == "OK" {
+		if !vp.transmitting || vp.pendingFrame == nil {
+			return m, nil
+		}
+		if vp.pendingClean != nil {
+			vp.pendingClean()
+		}
+		return m.completeVideoFrame(vp.pendingFrame)
+	}
+	vp.playing = false
+	vp.transmitting = false
+	vp.pendingFrame = nil
+	if vp.pendingClean != nil {
+		vp.pendingClean()
+		vp.pendingClean = nil
+	}
+	return m, func() tea.Msg {
+		return errStatus("video frame", fmt.Errorf("Kitty: %s", msg.Payload))
+	}
+}
+
+func videoTickAfterCmd(gen int, delay time.Duration) tea.Cmd {
+	if delay < 0 {
+		delay = 0
+	}
+	return tea.Tick(delay, func(time.Time) tea.Msg { return videoTickMsg{gen: gen} })
 }
 
 // videoSpinnerGlyph returns the loading-spinner glyph for the given index,
@@ -271,16 +371,24 @@ func (m RootModel) togglePlay() RootModel {
 }
 
 // closeVideoPlayer tears down the overlay, stops ffmpeg, and drops the frame.
-func (m RootModel) closeVideoPlayer() RootModel {
+func (m RootModel) closeVideoPlayer() (RootModel, tea.Cmd) {
 	if m.videoPlayer != nil {
+		if m.videoPlayer.pendingClean != nil {
+			m.videoPlayer.pendingClean()
+			m.videoPlayer.pendingClean = nil
+		}
 		if m.videoPlayer.source != nil {
 			_ = m.videoPlayer.source.Close()
 		}
 		m.videoPlayer.gen++
-		m.imageCache.Remove(videoPlayerKey)
+		id := m.videoPlayer.kittyID
 		m.videoPlayer = nil
+		if id == 0 {
+			return m, nil
+		}
+		return m, func() tea.Msg { return tea.Raw(media.DeleteSeq(id))() }
 	}
-	return m
+	return m, nil
 }
 
 // handleVideoPlayerKey handles keys while the modal is open: q/esc close, o opens
@@ -289,7 +397,7 @@ func (m RootModel) handleVideoPlayerKey(keyStr string) (RootModel, tea.Cmd) {
 	// Normalize so the keys work regardless of keyboard layout (e.g. Russian).
 	switch keys.NormalizeKey(keyStr) {
 	case "esc":
-		return m.closeVideoPlayer(), nil
+		return m.closeVideoPlayer()
 	case "right", "l":
 		return m.pageModal(1)
 	case "left", "h":
@@ -301,7 +409,7 @@ func (m RootModel) handleVideoPlayerKey(keyStr string) (RootModel, tea.Cmd) {
 		return m, nil
 	case " ", "space":
 		m = m.togglePlay()
-		if m.videoPlayer != nil && m.videoPlayer.playing {
+		if m.videoPlayer != nil && m.videoPlayer.playing && !m.videoPlayer.transmitting {
 			return m, videoTickCmd(m.videoPlayer.gen)
 		}
 		return m, nil
@@ -396,8 +504,7 @@ func (m RootModel) videoPlayerView(base string) string {
 	// Image rows, or a spinner while still loading.
 	var content []string
 	if vp.frame != nil {
-		id := m.kittyStore.IDFor(videoPlayerKey)
-		content = media.PlaceholderLines(id, vp.cols, vp.rows)
+		content = media.PlaceholderLines(vp.kittyID, vp.cols, vp.rows)
 	} else {
 		blank := theme.Pad(vp.cols)
 		content = make([]string, vp.rows)

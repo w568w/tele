@@ -1,6 +1,9 @@
 package media_test
 
 import (
+	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,6 +80,36 @@ func TestKittyStore_TransmitSeqIsDecodable(t *testing.T) {
 	hasDims := strings.Contains(seq, "s=") && strings.Contains(seq, "v=")
 	require.True(t, selfDescribing || hasDims,
 		"transmit must be PNG (f=100) or carry s=/v= dimensions")
+}
+
+func TestTransmitAnimationFrameSeqEditsRootFrame(t *testing.T) {
+	seq, cleanup, err := media.TransmitAnimationFrameSeq(7, sampleImage(256, 256), 256)
+	require.NoError(t, err)
+	require.NotNil(t, cleanup)
+	require.Contains(t, seq, "a=f")
+	require.Contains(t, seq, "i=7")
+	require.Contains(t, seq, "f=24")
+	require.Contains(t, seq, "s=256")
+	require.Contains(t, seq, "v=256")
+	require.Contains(t, seq, "r=1")
+	require.Contains(t, seq, "X=1")
+	require.Contains(t, seq, "C=1")
+	require.Contains(t, seq, "o=z")
+	require.Contains(t, seq, "t=s")
+	require.Contains(t, seq, "N=1")
+	require.NotContains(t, seq, "a=T")
+	require.NotContains(t, seq, "U=1")
+	require.NotContains(t, strings.SplitN(seq, ";", 2)[0], "q=")
+	require.Equal(t, 1, strings.Count(seq, "\x1b_G"), "shared-memory transmission uses one command")
+
+	payload := strings.TrimSuffix(strings.SplitN(seq, ";", 2)[1], "\x1b\\")
+	name, err := base64.StdEncoding.DecodeString(payload)
+	require.NoError(t, err)
+	path := filepath.Join("/dev/shm", strings.TrimPrefix(string(name), "/"))
+	require.FileExists(t, path)
+	cleanup()
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestKittyRenderer_NilUntilTransmitted(t *testing.T) {
