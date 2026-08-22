@@ -140,6 +140,24 @@ func TestChat_SendMessage_EmitsRequest(t *testing.T) {
 	assert.Equal(t, "hello", req.Text)
 }
 
+func TestChat_SendMessage_CarriesAndResetsNoWebpage(t *testing.T) {
+	m := screens.NewChatModel(80, 24)
+	openChat(m, &domain.Chat{ID: 10, Peer: domain.Peer{ID: 10, Type: domain.PeerUser}})
+	newPane, _ := m.Update(keys.ActionMsg{Action: keys.ActionInsert})
+	m = newPane.(*screens.ChatModel)
+	m.ToggleWebPreview()
+	m.SetComposerValue("https://example.com")
+
+	newPane, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = newPane.(*screens.ChatModel)
+	req := cmd().(screens.SendMsgRequest)
+	assert.True(t, req.NoWebpage)
+
+	m.SetComposerValue("next")
+	_, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.False(t, cmd().(screens.SendMsgRequest).NoWebpage)
+}
+
 func TestChat_SendMessage_CarriesMentionEntities(t *testing.T) {
 	m := screens.NewChatModel(80, 24)
 	chat := &domain.Chat{ID: 10, Peer: domain.Peer{ID: 10, Type: domain.PeerChannel}}

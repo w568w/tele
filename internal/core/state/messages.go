@@ -43,7 +43,7 @@ func (s *State) ApplyEdit(msg domain.Message) (Change, bool) {
 	if msg.EditDate == nil {
 		return s.ApplyReactions(msg.ChatID, msg.ID, msg.Reactions, msg.HasUnreadReactions)
 	}
-	s.st.UpdateMessageText(msg.ChatID, msg.ID, msg.Text, msg.Entities, *msg.EditDate)
+	s.st.UpdateMessageText(msg.ChatID, msg.ID, msg.Text, msg.Entities, msg.HasWebPreview, *msg.EditDate)
 	s.st.UpdateMessageReactions(msg.ChatID, msg.ID, msg.Reactions)
 	unreadChanged := false
 	if msg.HasUnreadReactions {

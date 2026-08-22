@@ -44,6 +44,7 @@ type OutboxMessage struct {
 	Entities     []MessageEntity `json:"entities,omitempty"`
 	ReplyToMsgID int             `json:"reply_to,omitempty"`
 	ThreadRootID int             `json:"thread_root,omitempty"`
+	NoWebpage    bool            `json:"no_webpage,omitempty"`
 }
 
 // OutboxMediaSend is the payload of an OutboxMedia entry: one album group, which

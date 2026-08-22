@@ -19,7 +19,7 @@ type Store interface {
 	// BumpChatLastMessage updates a chat's last-message preview and ordering
 	// without appending to its message slice (e.g. a forward target).
 	BumpChatLastMessage(chatID int64, msg domain.Message)
-	UpdateMessageText(chatID int64, msgID int, text string, entities []domain.MessageEntity, editDate time.Time)
+	UpdateMessageText(chatID int64, msgID int, text string, entities []domain.MessageEntity, hasWebPreview bool, editDate time.Time)
 	UpdateMessageReactions(chatID int64, msgID int, reactions []domain.Reaction)
 	UpdateMessageMedia(chatID int64, msgID int, photo *domain.PhotoRef, document *domain.DocumentRef)
 	// ReplaceMessage overwrites a stored message wholesale. It is how a refused

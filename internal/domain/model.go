@@ -254,6 +254,11 @@ type Message struct {
 	Media      *MediaRef    // nil if message has no media
 	Photo      *PhotoRef    // nil if message has no photo
 	Document   *DocumentRef // nil if message has no document-backed media
+
+	// HasWebPreview is true when Telegram attached an automatically generated
+	// webpage preview. It is kept separate from Media because link previews are
+	// message decoration, not downloadable/openable media in tele.
+	HasWebPreview bool
 	// GroupedID is Telegram's album key: album parts share the same non-zero
 	// grouped_id. 0 means the message is not part of an album.
 	GroupedID    int64

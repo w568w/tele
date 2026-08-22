@@ -9,6 +9,7 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/core/outbox"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/telerr"
+	internaltg "github.com/sorokin-vladimir/tele/internal/tg"
 )
 
 // sentGracePeriod bounds how long a successfully sent entry waits for its
@@ -90,7 +91,17 @@ func (o *Owner) attempt(ctx context.Context, e domain.OutboxEntry) {
 	o.log.Debug("outbox: sending",
 		zap.String("ref", e.Ref), zap.Int64("chat_id", e.ChatID), zap.Int("attempt", e.Attempts))
 
-	sent, err := o.client.SendMessage(ctx, peer, e.Message.Text, e.Message.ReplyToMsgID, e.Message.ThreadRootID, e.Message.Entities, e.RandomID)
+	var sent domain.Message
+	if e.Message.NoWebpage {
+		client, ok := o.client.(internaltg.MessageOptionsClient)
+		if !ok {
+			err = &telerr.Error{Kind: telerr.Internal, Op: "messages.sendMessage", Detail: "no message-options client"}
+		} else {
+			sent, err = client.SendMessageNoPreview(ctx, peer, e.Message.Text, e.Message.ReplyToMsgID, e.Message.ThreadRootID, e.Message.Entities, e.RandomID)
+		}
+	} else {
+		sent, err = o.client.SendMessage(ctx, peer, e.Message.Text, e.Message.ReplyToMsgID, e.Message.ThreadRootID, e.Message.Entities, e.RandomID)
+	}
 	if ctx.Err() != nil {
 		// The owner is going away. The row stays in "sending" on purpose: the
 		// next process resets it and resends with the same random_id.

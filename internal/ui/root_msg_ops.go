@@ -40,6 +40,24 @@ type editMsgFailedMsg struct {
 	err    error
 }
 
+type webPreviewOwner interface {
+	RemoveWebPreview(ctx context.Context, chatID int64, msgID int) error
+}
+
+func (m RootModel) handleRemoveWebPreview(msg components.RemoveWebPreviewRequest) (RootModel, tea.Cmd) {
+	owner, ok := m.owner.(webPreviewOwner)
+	if !ok || msg.MsgID == 0 {
+		return m, nil
+	}
+	ctx, chatID := m.ctx, m.currentChatID
+	return m, func() tea.Msg {
+		if err := owner.RemoveWebPreview(ctx, chatID, msg.MsgID); err != nil {
+			return errStatus("remove link preview", err)
+		}
+		return nil
+	}
+}
+
 // forwardDoneMsg reports the outcome of a forward for the status line. The
 // target's preview bump is the owner's, so nothing else travels here.
 type forwardDoneMsg struct {
@@ -69,6 +87,7 @@ func (m RootModel) handleSendMsg(msg screens.SendMsgRequest) (RootModel, tea.Cmd
 		Entities:     msg.Entities,
 		ReplyToMsgID: replyToMsgID,
 		ThreadRootID: threadRootID,
+		NoWebpage:    msg.NoWebpage,
 	}
 	return m, func() tea.Msg {
 		if err := owner.Send(ctx, req); err != nil {

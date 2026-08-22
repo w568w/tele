@@ -66,6 +66,17 @@ func TestNewContextMenu_OutgoingItems(t *testing.T) {
 	assert.Contains(t, view, "delete")
 }
 
+func TestContextMenu_OffersRemovingAnOutgoingWebPreview(t *testing.T) {
+	cm := components.NewContextMenu(7, true, 0, 0, 0, false, true, nil, defaultKM())
+	cm.SetHasWebPreview(true)
+	assert.Contains(t, strip(cm.View()), "Remove link preview")
+
+	newCM, cmd := cm.Update(keyMsg('w'))
+	assert.Nil(t, newCM)
+	require.NotNil(t, cmd)
+	assert.Equal(t, components.RemoveWebPreviewRequest{MsgID: 7}, cmd())
+}
+
 func TestNewContextMenu_AccentsHotkeyLetters(t *testing.T) {
 	// Both slots: the menu paints its own panel, and the accent that belongs on
 	// a panel is not the one that belongs on the terminal background. In the dark

@@ -9,6 +9,7 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/core/state"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/telerr"
+	internaltg "github.com/sorokin-vladimir/tele/internal/tg"
 )
 
 // messageByID returns a copy of one stored message, so a caller can keep the
@@ -213,6 +214,31 @@ func (o *Owner) EditMessage(ctx context.Context, chatID int64, msgID int, text s
 	edited.EditDate = &now
 	o.state.ApplyEdit(edited)
 	if err := o.client.EditMessage(ctx, peer, msgID, text, entities); err != nil {
+		o.state.ApplyEditRestore(prev)
+		return err
+	}
+	return nil
+}
+
+// RemoveWebPreview edits an outgoing message without changing its text. The
+// preview disappears optimistically and is restored if Telegram refuses.
+func (o *Owner) RemoveWebPreview(ctx context.Context, chatID int64, msgID int) error {
+	peer, err := o.peer(chatID)
+	if err != nil {
+		return err
+	}
+	prev, err := o.messageByID(chatID, msgID)
+	if err != nil {
+		return err
+	}
+	client, ok := o.client.(internaltg.MessageOptionsClient)
+	if !ok {
+		return &telerr.Error{Kind: telerr.Internal, Op: "messages.editMessage", Detail: "no message-options client"}
+	}
+	edited := prev
+	edited.HasWebPreview = false
+	o.state.ApplyEditRestore(edited)
+	if err := client.RemoveWebPreview(ctx, peer, msgID, prev.Text, prev.Entities); err != nil {
 		o.state.ApplyEditRestore(prev)
 		return err
 	}

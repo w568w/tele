@@ -49,6 +49,16 @@ func TestConvertMessage_HasUnreadReactions(t *testing.T) {
 	assert.False(t, msg2.HasUnreadReactions)
 }
 
+func TestConvertMessage_TracksWebPreviewWithoutGenericMedia(t *testing.T) {
+	raw := &tg.Message{ID: 5, Date: 1700000000, Message: "https://example.com", Media: &tg.MessageMediaWebPage{}}
+
+	msg, ok := convertMessage(raw, 10)
+
+	require.True(t, ok)
+	assert.True(t, msg.HasWebPreview)
+	assert.Nil(t, msg.Media)
+}
+
 func TestConvertReactions_PreservesCustomEmoji(t *testing.T) {
 	got := convertReactions(tg.MessageReactions{Results: []tg.ReactionCount{{
 		Reaction: &tg.ReactionCustomEmoji{DocumentID: 77},

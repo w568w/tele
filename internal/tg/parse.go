@@ -176,6 +176,8 @@ func classifyMedia(media tg.MessageMediaClass) *domain.MediaRef {
 		return &domain.MediaRef{Kind: domain.MediaPhoto}
 	case *tg.MessageMediaDocument:
 		return classifyDocument(m)
+	case *tg.MessageMediaWebPage:
+		return nil
 	case *tg.MessageMediaGeo, *tg.MessageMediaGeoLive, *tg.MessageMediaVenue:
 		return &domain.MediaRef{Kind: domain.MediaLocation}
 	case nil:
@@ -276,6 +278,7 @@ func convertMessage(raw tg.MessageClass, chatID int64) (domain.Message, bool) {
 		IsOut:    msg.Out,
 		Entities: convertEntities(msg.Entities),
 	}
+	_, out.HasWebPreview = msg.Media.(*tg.MessageMediaWebPage)
 	out.Mentioned = msg.Mentioned
 	out.GroupedID = msg.GroupedID
 	out.Media = classifyMedia(msg.Media)

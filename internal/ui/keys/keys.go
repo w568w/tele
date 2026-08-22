@@ -122,6 +122,7 @@ func DefaultKeyMap() KeyMap {
 		ContextComposer: {
 			"enter":  ActionConfirm,
 			"esc":    ActionNormal,
+			"ctrl+p": ActionToggleWebPreview,
 			"ctrl+t": ActionToggleSendAs,
 			"ctrl+v": ActionPasteImage,
 		},
@@ -142,6 +143,7 @@ func DefaultKeyMap() KeyMap {
 			"o":     ActionOpenInViewer,
 			"O":     ActionOpenExternal,
 			"p":     ActionPlayVoice,
+			"w":     ActionRemoveWebPreview,
 			"s":     ActionDownloadFile,
 			"y":     ActionCopyMessage,
 			"P":     ActionShowProfile,

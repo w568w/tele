@@ -116,3 +116,11 @@ type Client interface {
 	// Updates returns a channel of incoming Telegram events.
 	Updates() <-chan store.Event
 }
+
+// MessageOptionsClient is the optional send/edit surface for flags that most
+// callers never need. Keeping it separate avoids making every Client test
+// double implement variants of the ordinary message methods.
+type MessageOptionsClient interface {
+	SendMessageNoPreview(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error)
+	RemoveWebPreview(ctx context.Context, peer domain.Peer, msgID int, text string, entities []domain.MessageEntity) error
+}

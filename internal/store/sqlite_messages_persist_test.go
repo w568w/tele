@@ -93,7 +93,7 @@ func TestSQLite_MessageEdit_PersistsSurvivesReopen(t *testing.T) {
 	s2 := openStore(t, path)
 	s2.SetChat(domain.Chat{ID: 4, Peer: domain.Peer{ID: 4, Type: domain.PeerUser}})
 	s2.LoadMessages(4)
-	s2.UpdateMessageText(4, 1, "after", nil, time.Unix(20, 0))
+	s2.UpdateMessageText(4, 1, "after", nil, false, time.Unix(20, 0))
 	s2.UpdateMessageReactions(4, 1, []domain.Reaction{{Emoji: "👍", Count: 2}})
 	require.NoError(t, s2.Close())
 

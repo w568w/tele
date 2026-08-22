@@ -61,6 +61,12 @@ type EditMsgRequest struct {
 	MsgID int
 }
 
+// RemoveWebPreviewRequest removes Telegram's generated preview while keeping
+// the outgoing message text unchanged.
+type RemoveWebPreviewRequest struct {
+	MsgID int
+}
+
 // OpenInViewerRequest is emitted when the user selects "Open in app" for a
 // media message (the in-app modal).
 type OpenInViewerRequest struct{}
@@ -114,10 +120,10 @@ type ContextMenu struct {
 	openTargets  []OpenTarget
 	keyMap       keys.KeyMap
 
+	hasWebPreview    bool
 	hasComments      bool
 	repliesCount     int
 	discussionChatID int64
-
 	// outboxRef addresses a queued send instead of a message. A message menu
 	// leaves it empty; an entry has no ID to be addressed by (#193).
 	outboxRef string
@@ -152,8 +158,15 @@ func (cm *ContextMenu) SetComments(count int, chatID int64) {
 	cm.refreshItems()
 }
 
+// SetHasWebPreview enables the removal entry after construction. This keeps
+// the long-standing constructors source-compatible for other clients/tests.
+func (cm *ContextMenu) SetHasWebPreview(has bool) {
+	cm.hasWebPreview = has
+	cm.refreshItems()
+}
+
 func (cm *ContextMenu) refreshItems() {
-	cm.setItems(mainItems(cm.isOut, cm.senderID != 0, cm.replyToMsgID != 0, cm.mediaKind, cm.hasMedia, cm.hasText, cm.openTargets, cm.hasComments, cm.repliesCount))
+	cm.setItems(mainItems(cm.isOut, cm.senderID != 0, cm.replyToMsgID != 0, cm.mediaKind, cm.hasMedia, cm.hasText, cm.hasWebPreview, cm.openTargets, cm.hasComments, cm.repliesCount))
 }
 
 // NewOutboxContextMenu builds the menu for a queued send. Two items, because an
@@ -192,7 +205,7 @@ func (cm *ContextMenu) setItems(items []menuItem) {
 
 func (cm *ContextMenu) Cursor() int { return cm.list.Cursor() }
 
-func mainItems(isOut bool, hasSender bool, isReply bool, mediaKind domain.MediaKind, hasMedia bool, hasText bool, openTargets []OpenTarget, hasComments bool, repliesCount int) []menuItem {
+func mainItems(isOut bool, hasSender bool, isReply bool, mediaKind domain.MediaKind, hasMedia bool, hasText, hasWebPreview bool, openTargets []OpenTarget, hasComments bool, repliesCount int) []menuItem {
 	var items []menuItem
 	if hasComments {
 		label := "View comments"
@@ -217,6 +230,9 @@ func mainItems(isOut bool, hasSender bool, isReply bool, mediaKind domain.MediaK
 	}
 	if isOut {
 		items = append(items, menuItem{label: "Edit", action: keys.ActionEdit})
+		if hasWebPreview {
+			items = append(items, menuItem{label: "Remove link preview", action: keys.ActionRemoveWebPreview})
+		}
 	}
 	if hasMedia {
 		items = append(items, mediaItems(mediaKind)...)
@@ -358,6 +374,9 @@ func (cm *ContextMenu) execute() (*ContextMenu, tea.Cmd) {
 	case keys.ActionEdit:
 		msgID := cm.msgID
 		return nil, func() tea.Msg { return EditMsgRequest{MsgID: msgID} }
+	case keys.ActionRemoveWebPreview:
+		msgID := cm.msgID
+		return nil, func() tea.Msg { return RemoveWebPreviewRequest{MsgID: msgID} }
 	case keys.ActionReact:
 		msgID := cm.msgID
 		return nil, func() tea.Msg { return ReactMsgRequest{MsgID: msgID} }

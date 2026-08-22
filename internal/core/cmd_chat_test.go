@@ -50,7 +50,10 @@ type stubClient struct {
 	sendCount    int
 	sentRandomID int64
 	sentID       int
-	sentPeer     domain.Peer
+
+	sentPeer       domain.Peer
+	noPreview      bool
+	removedPreview bool
 	// sendBlock, when set, holds SendMessage open so a test can catch an entry
 	// mid-flight and drop the owner under it.
 	sendBlock chan struct{}

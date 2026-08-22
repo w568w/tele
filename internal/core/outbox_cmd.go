@@ -24,6 +24,7 @@ type SendRequest struct {
 	Entities     []domain.MessageEntity
 	ReplyToMsgID int
 	ThreadRootID int
+	NoWebpage    bool
 }
 
 // NewRef returns a fresh idempotency key. Callers generate one per composed
@@ -53,13 +54,18 @@ func (o *Owner) Send(ctx context.Context, req SendRequest) error {
 	if err != nil {
 		return err
 	}
+	message := &domain.OutboxMessage{
+		Peer: peer, Text: req.Text, Entities: req.Entities,
+		ReplyToMsgID: req.ReplyToMsgID, ThreadRootID: req.ThreadRootID,
+		NoWebpage: req.NoWebpage,
+	}
 	entry := domain.OutboxEntry{
 		Ref:       req.Ref,
 		ChatID:    req.ChatID,
 		RandomID:  outbox.RandomIDFor(req.Ref),
 		Kind:      domain.OutboxText,
 		State:     domain.OutboxQueued,
-		Message:   &domain.OutboxMessage{Peer: peer, Text: req.Text, Entities: req.Entities, ReplyToMsgID: req.ReplyToMsgID, ThreadRootID: req.ThreadRootID},
+		Message:   message,
 		CreatedAt: time.Now(),
 	}
 	added, isNew, err := o.outbox.Add(entry)

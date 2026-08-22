@@ -20,6 +20,7 @@ type SendMsgRequest struct {
 	Text         string
 	ReplyToMsgID int
 	Entities     []domain.MessageEntity
+	NoWebpage    bool
 }
 
 // SendMediaRequest is emitted when enter is pressed with a staged attachment.
@@ -283,6 +284,10 @@ func (m *ChatModel) VisibleReadMaxID() int { return m.msgList.VisibleReadMaxID()
 func (m *ChatModel) ComposerFocused() bool { return m.composerFocused }
 func (m *ChatModel) ComposerValue() string { return m.composer.Value() }
 func (m *ChatModel) ComposerHeight() int   { return m.composer.VisualHeight() }
+func (m *ChatModel) ToggleWebPreview() {
+	m.composer.ToggleWebPreview()
+	m.syncMsgListHeight()
+}
 
 // ComposerMentionQuery reports the active @mention token left of the cursor.
 func (m *ChatModel) ComposerMentionQuery() (string, bool) { return m.composer.MentionQuery() }
@@ -309,6 +314,10 @@ func (m *ChatModel) SelectedGroupMedia() []components.GroupMediaRef {
 }
 func (m *ChatModel) SelectedMessageIsOut() bool     { return m.msgList.SelectedMessageIsOut() }
 func (m *ChatModel) SelectedMessageSenderID() int64 { return m.msgList.SelectedMessageSenderID() }
+
+func (m *ChatModel) SelectedMessageHasWebPreview() bool {
+	return m.msgList.SelectedMessageHasWebPreview()
+}
 
 // PeerUserID is the person on the other side of an open private chat, 0 for a
 // group, a channel or no chat. It is the chat-header entry point to a profile.
@@ -697,6 +706,7 @@ func (m *ChatModel) Update(msg tea.Msg) (layout.Pane, tea.Cmd) {
 				// mention_name entities; a message empty after trimming is dropped
 				// by the text != "" guard below (#154).
 				text, entities := m.composer.ResolveEntities()
+				noWebpage := m.composer.NoWebpage()
 				replyID := m.replyToMsgID
 				editID := m.editMsgID
 				wasTyping := !m.lastTypingAt.IsZero()
@@ -713,7 +723,7 @@ func (m *ChatModel) Update(msg tea.Msg) (layout.Pane, tea.Cmd) {
 						}
 					} else {
 						sendCmd = func() tea.Msg {
-							return SendMsgRequest{Peer: peer, Text: text, ReplyToMsgID: replyID, Entities: entities}
+							return SendMsgRequest{Peer: peer, Text: text, ReplyToMsgID: replyID, Entities: entities, NoWebpage: noWebpage}
 						}
 					}
 					if wasTyping {

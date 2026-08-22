@@ -248,6 +248,18 @@ func (s *stubClient) SendMessage(_ context.Context, peer domain.Peer, text strin
 	}, nil
 }
 
+func (s *stubClient) SendMessageNoPreview(ctx context.Context, peer domain.Peer, text string, replyTo, threadRootID int, ents []domain.MessageEntity, randomID int64) (domain.Message, error) {
+	s.sendMu.Lock()
+	s.noPreview = true
+	s.sendMu.Unlock()
+	return s.SendMessage(ctx, peer, text, replyTo, threadRootID, ents, randomID)
+}
+
+func (s *stubClient) RemoveWebPreview(_ context.Context, _ domain.Peer, _ int, _ string, _ []domain.MessageEntity) error {
+	s.removedPreview = true
+	return s.err
+}
+
 func (s *stubClient) sendCalls() int {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
@@ -264,6 +276,23 @@ func (s *stubClient) lastSentPeer() domain.Peer {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	return s.sentPeer
+}
+
+func (s *stubClient) sentWithoutPreview() bool {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	return s.noPreview
+}
+
+func TestRemoveWebPreview_OptimisticallyClearsThePreview(t *testing.T) {
+	c := &stubClient{}
+	o, st := newCmdOwner(t, c)
+	st.SetMessages(1, []domain.Message{{ID: 5, ChatID: 1, Text: "https://example.com", HasWebPreview: true}})
+
+	require.NoError(t, o.RemoveWebPreview(context.Background(), 1, 5))
+
+	assert.False(t, st.Messages(1)[0].HasWebPreview)
+	assert.True(t, c.removedPreview)
 }
 
 func TestForward_SendsToTheGivenTarget(t *testing.T) {

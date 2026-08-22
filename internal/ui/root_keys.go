@@ -123,6 +123,10 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if keys.NormalizeKey(keyStr) == "ctrl+t" && len(m.pendingAttachments) > 0 {
 			return m.toggleSendAs()
 		}
+		if m.keyMap.Resolve(keys.ContextComposer, keys.NormalizeKey(keyStr)) == keys.ActionToggleWebPreview {
+			m.chat.ToggleWebPreview()
+			return m, nil
+		}
 		if keyStr == "esc" {
 			// esc only leaves insert mode; a staged attachment is kept (drop it
 			// explicitly with the cancel key in normal mode).
@@ -325,6 +329,7 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if hasComments, repliesCount, discussionChatID := m.chat.SelectedMessageComments(); hasComments {
 					m.contextMenu.SetComments(repliesCount, discussionChatID)
 				}
+				m.contextMenu.SetHasWebPreview(m.chat.SelectedMessageHasWebPreview())
 			}
 		}
 		return m, nil

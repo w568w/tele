@@ -138,6 +138,14 @@ func (c *GotdClient) getHistory(ctx context.Context, peer domain.Peer, req *tg.M
 }
 
 func (c *GotdClient) SendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error) {
+	return c.sendMessage(ctx, peer, text, replyToMsgID, threadRootID, entities, randomID, false)
+}
+
+func (c *GotdClient) SendMessageNoPreview(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error) {
+	return c.sendMessage(ctx, peer, text, replyToMsgID, threadRootID, entities, randomID, true)
+}
+
+func (c *GotdClient) sendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64, noWebpage bool) (domain.Message, error) {
 	api, err := c.acquireAPI()
 	if err != nil {
 		return domain.Message{}, err
@@ -147,7 +155,9 @@ func (c *GotdClient) SendMessage(ctx context.Context, peer domain.Peer, text str
 	inputPeer := peerToInput(peer)
 	var sent domain.Message
 	err = WithRetry(ctx, func() error {
-		updates, err := api.MessagesSendMessage(ctx, buildSendRequest(inputPeer, text, randomID, replyToMsgID, threadRootID, entities))
+		req := buildSendRequest(inputPeer, text, randomID, replyToMsgID, threadRootID, entities)
+		req.NoWebpage = noWebpage
+		updates, err := api.MessagesSendMessage(ctx, req)
 		if err != nil {
 			c.log.Error("MessagesSendMessage failed", zap.Error(err))
 			return err
@@ -513,6 +523,22 @@ func (c *GotdClient) EditMessage(ctx context.Context, peer domain.Peer, msgID in
 		_, err := api.MessagesEditMessage(ctx, buildEditRequest(peerToInput(peer), msgID, text, entities))
 		if err != nil {
 			c.log.Error("MessagesEditMessage failed", zap.Error(err))
+		}
+		return err
+	})
+}
+
+func (c *GotdClient) RemoveWebPreview(ctx context.Context, peer domain.Peer, msgID int, text string, entities []domain.MessageEntity) error {
+	api, err := c.acquireAPI()
+	if err != nil {
+		return err
+	}
+	return WithRetry(ctx, func() error {
+		req := buildEditRequest(peerToInput(peer), msgID, text, entities)
+		req.NoWebpage = true
+		_, err := api.MessagesEditMessage(ctx, req)
+		if err != nil {
+			c.log.Error("RemoveWebPreview failed", zap.Error(err))
 		}
 		return err
 	})

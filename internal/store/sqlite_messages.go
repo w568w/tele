@@ -356,10 +356,10 @@ func (s *SQLiteStore) AppendMessage(msg domain.Message) {
 	s.capMessagesLocked(msg.ChatID)
 }
 
-// UpdateMessageText replaces a message's text and its entities together. They
-// must move as a unit: entity offsets address the text they were parsed from,
-// so keeping the old ones would leave them pointing at characters that changed.
-func (s *SQLiteStore) UpdateMessageText(chatID int64, msgID int, text string, entities []domain.MessageEntity, editDate time.Time) {
+// UpdateMessageText replaces the editable message fields together. Entity
+// offsets address the text, and link previews are created or removed by the
+// same Telegram edit, so keeping any old value would describe mixed versions.
+func (s *SQLiteStore) UpdateMessageText(chatID int64, msgID int, text string, entities []domain.MessageEntity, hasWebPreview bool, editDate time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.messages[chatID] {
@@ -368,6 +368,7 @@ func (s *SQLiteStore) UpdateMessageText(chatID int64, msgID int, text string, en
 			cp := make([]domain.MessageEntity, len(entities))
 			copy(cp, entities)
 			s.messages[chatID][i].Entities = cp
+			s.messages[chatID][i].HasWebPreview = hasWebPreview
 			t := editDate
 			s.messages[chatID][i].EditDate = &t
 			s.markMsgDirtyLocked(chatID, msgID)

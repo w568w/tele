@@ -32,6 +32,7 @@ type Composer struct {
 	ta           textarea.Model
 	width        int
 	replyPreview string
+	noWebpage    bool
 	focused      bool
 	attachments  []AttachmentChip
 	attachToggle bool
@@ -142,7 +143,11 @@ func (c *Composer) Reset() {
 	c.ta.Reset()
 	c.replyPreview = ""
 	c.pending = nil
+	c.noWebpage = false
 }
+
+func (c *Composer) ToggleWebPreview() { c.noWebpage = !c.noWebpage }
+func (c *Composer) NoWebpage() bool   { return c.noWebpage }
 
 // limit returns the draft's maximum length in UTF-16 code units. With an
 // attachment staged the composer is the caption field, which Telegram caps
@@ -489,6 +494,9 @@ func humanSize(n int64) string {
 func (c *Composer) buildContent() string {
 	var parts []string
 	parts = append(parts, c.attachmentLines()...)
+	if c.noWebpage {
+		parts = append(parts, "Link preview off")
+	}
 	if c.replyPreview != "" {
 		parts = append(parts, c.replyPreview, "")
 	}

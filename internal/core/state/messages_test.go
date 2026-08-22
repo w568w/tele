@@ -63,7 +63,7 @@ func TestApplyIncoming_OutgoingDoesNotCount(t *testing.T) {
 func TestApplyEdit_RealEditUpdatesText(t *testing.T) {
 	s, st := newState(t)
 	st.SetChat(domain.Chat{ID: 1})
-	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "before"})
+	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "before", HasWebPreview: true})
 	when := time.Now()
 
 	chg, ok := s.ApplyEdit(domain.Message{ID: 5, ChatID: 1, Text: "after", EditDate: &when})
@@ -71,6 +71,7 @@ func TestApplyEdit_RealEditUpdatesText(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, state.ChangeMessageEdited, chg.Kind)
 	assert.Equal(t, "after", st.Messages(1)[0].Text)
+	assert.False(t, st.Messages(1)[0].HasWebPreview)
 }
 
 // A reaction on a message that was genuinely edited earlier arrives with a

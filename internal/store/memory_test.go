@@ -95,7 +95,7 @@ func TestMemory_UpdateMessageText(t *testing.T) {
 	s := store.NewMemory()
 	now := time.Now()
 	s.AppendMessage(domain.Message{ID: 1, ChatID: 5, Text: "original"})
-	s.UpdateMessageText(5, 1, "edited", nil, now)
+	s.UpdateMessageText(5, 1, "edited", nil, false, now)
 	msgs := s.Messages(5)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "edited", msgs[0].Text)
@@ -108,7 +108,7 @@ func TestMemory_UpdateMessageText_ReplacesEntities(t *testing.T) {
 		ID: 1, ChatID: 5, Text: "смотри https://example.com",
 		Entities: []domain.MessageEntity{{Type: "url", Offset: 7, Length: 19}},
 	})
-	s.UpdateMessageText(5, 1, "привет", nil, time.Now())
+	s.UpdateMessageText(5, 1, "привет", nil, false, time.Now())
 	msgs := s.Messages(5)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "привет", msgs[0].Text)
@@ -121,7 +121,7 @@ func TestMemory_UpdateMessageText_SetsNewEntities(t *testing.T) {
 	s := store.NewMemory()
 	s.AppendMessage(domain.Message{ID: 1, ChatID: 5, Text: "old"})
 	ents := []domain.MessageEntity{{Type: "bold", Offset: 0, Length: 5}}
-	s.UpdateMessageText(5, 1, "новый", ents, time.Now())
+	s.UpdateMessageText(5, 1, "новый", ents, false, time.Now())
 	msgs := s.Messages(5)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, ents, msgs[0].Entities)
@@ -131,7 +131,7 @@ func TestMemory_UpdateMessageText_NoopWhenMissing(t *testing.T) {
 	s := store.NewMemory()
 	s.AppendMessage(domain.Message{ID: 1, ChatID: 5, Text: "msg"})
 	assert.NotPanics(t, func() {
-		s.UpdateMessageText(5, 999, "x", nil, time.Now())
+		s.UpdateMessageText(5, 999, "x", nil, false, time.Now())
 	})
 	msgs := s.Messages(5)
 	assert.Equal(t, "msg", msgs[0].Text)

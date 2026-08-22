@@ -54,11 +54,12 @@ var actionDisplayOrder = []keys.Action{
 	keys.ActionInsert, keys.ActionNormal, keys.ActionConfirm,
 	keys.ActionSearch, keys.ActionOpenContextMenu,
 	keys.ActionReply, keys.ActionReact, keys.ActionEdit, keys.ActionForward, keys.ActionSaveToSaved,
+	keys.ActionRemoveWebPreview,
 	keys.ActionCopyMessage, keys.ActionOpenInViewer, keys.ActionOpenExternal,
 	keys.ActionPlayVoice, keys.ActionDownloadFile, keys.ActionJumpToOriginal,
 	keys.ActionMarkRead, keys.ActionMarkUnread, keys.ActionMute, keys.ActionUnmute,
 	keys.ActionArchive, keys.ActionUnarchive, keys.ActionAddToFolder, keys.ActionAttach,
-	keys.ActionPasteImage, keys.ActionToggleSendAs, keys.ActionCancelUpload,
+	keys.ActionPasteImage, keys.ActionToggleWebPreview, keys.ActionToggleSendAs, keys.ActionCancelUpload,
 	keys.ActionDelete, keys.ActionDeleteRevoke, keys.ActionDeleteMe,
 	keys.ActionDismissToast, keys.ActionShowHelp, keys.ActionCancel, keys.ActionQuit,
 }

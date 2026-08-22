@@ -530,6 +530,8 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRetryOutbox(msg)
 	case components.DiscardOutboxRequest:
 		return m.handleDiscardOutbox(msg)
+	case components.RemoveWebPreviewRequest:
+		return m.handleRemoveWebPreview(msg)
 	case screens.ForwardToChatRequest:
 		return m.handleForwardToChat(msg)
 	case screens.SearchUsersRequest:

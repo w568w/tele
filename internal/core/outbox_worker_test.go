@@ -61,6 +61,19 @@ func TestWorker_SendsAQueuedEntryWithItsPersistedRandomID(t *testing.T) {
 	assert.Equal(t, outbox.RandomIDFor("r1"), c.lastRandomID())
 }
 
+func TestWorker_CarriesNoWebpageThroughTheQueue(t *testing.T) {
+	c := &stubClient{sentID: 77}
+	o, _ := newCmdOwner(t, c)
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+	ctx := runWorker(t, o)
+
+	require.NoError(t, o.Send(ctx, SendRequest{Ref: "no-preview", ChatID: 1, Text: "https://example.com", NoWebpage: true}))
+
+	waitFor(t, "the no-preview message was never sent", func() bool { return c.sendCalls() == 1 })
+	assert.True(t, c.sentWithoutPreview())
+}
+
 func TestWorker_SendsToAnExplicitPeerWithoutALocalChat(t *testing.T) {
 	c := &stubClient{sentID: 77}
 	o, _ := newCmdOwner(t, c)

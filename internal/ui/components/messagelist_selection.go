@@ -60,6 +60,13 @@ func (ml *MessageList) SelectedMessageIsOut() bool {
 	return false
 }
 
+func (ml *MessageList) SelectedMessageHasWebPreview() bool {
+	if msg := ml.computeSelectedMsg(); msg != nil {
+		return msg.HasWebPreview
+	}
+	return false
+}
+
 // SelectedMessageSenderID is who wrote the selected message, 0 when there is no
 // selection or the message names no sender. Outgoing messages report 0: the
 // author is the account itself, and a profile of yourself is not phase one
