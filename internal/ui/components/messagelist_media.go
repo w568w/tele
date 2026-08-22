@@ -126,7 +126,7 @@ func (ml *MessageList) mediaBox(msg domain.Message, imgW, imgH int) (cols, rows 
 	cw, ch := media.CellPx()
 	maxCols := ml.photoContentCols()
 	switch {
-	case domain.IsStaticSticker(msg.Media, msg.Document):
+	case msg.Media != nil && msg.Media.Kind == domain.MediaSticker:
 		maxCols = ml.compactMediaCols()
 	case msg.Media != nil && msg.Media.Kind == domain.MediaVideoNote:
 		maxCols = ml.videoNoteCols()
@@ -281,7 +281,7 @@ func durationLabel(base string, dur int) string {
 
 // PreviewImageID returns the image-cache key for a message's inline image and
 // whether one applies: photos, videos with an embedded thumbnail, and static
-// WEBP stickers (Kitty mode only).
+// stickers with a decodable full image or still thumbnail (Kitty mode only).
 func (ml *MessageList) PreviewImageID(msg domain.Message) (int64, bool) {
 	if msg.Media == nil {
 		return 0, false
@@ -295,8 +295,10 @@ func (ml *MessageList) PreviewImageID(msg domain.Message) (int64, bool) {
 		// Telegram GIFs are silent MP4s; show the document thumbnail inline like a
 		// video (Phase 2b animates the selected one).
 		return msg.Document.ID, true
-	case ml.imageMode == media.ModeKitty && domain.IsStaticSticker(msg.Media, msg.Document):
-		return msg.Document.ID, true
+	case ml.imageMode == media.ModeKitty:
+		if _, ok := domain.StickerPreviewSlot(msg.Media, msg.Document); ok {
+			return msg.Document.ID, true
+		}
 	}
 	return 0, false
 }

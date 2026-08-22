@@ -1467,14 +1467,21 @@ func TestPreviewImageID_StaticStickerKittyOnly(t *testing.T) {
 		t.Fatalf("static sticker in Kitty: got (%d,%v), want (555,true)", id, ok)
 	}
 
-	// Animated sticker (tgs) in Kitty: still no inline image.
+	// Animated sticker without a Telegram still thumbnail has no inline image.
 	tgsMsg := domain.Message{
 		ID:       2,
 		Media:    &domain.MediaRef{Kind: domain.MediaSticker, Emoji: "🐱"},
 		Document: &domain.DocumentRef{ID: 777, MimeType: "application/x-tgsticker"},
 	}
 	if _, ok := mlKitty.PreviewImageIDForTest(tgsMsg); ok {
-		t.Fatal("animated sticker must not preview even in Kitty mode")
+		t.Fatal("animated sticker without a thumbnail must not claim a preview")
+	}
+
+	// TGS/WEBM use Telegram's still document thumbnail when one is present.
+	tgsMsg.Document.ThumbSize = "m"
+	id, ok = mlKitty.PreviewImageIDForTest(tgsMsg)
+	if !ok || id != 777 {
+		t.Fatalf("animated sticker thumbnail in Kitty: got (%d,%v), want (777,true)", id, ok)
 	}
 }
 

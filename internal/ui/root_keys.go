@@ -54,6 +54,9 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.reactionPicker = newPicker
 		return m, cmd
 	}
+	if m.stickerPicker != nil {
+		return m.handleStickerPickerKey(msg)
+	}
 	if m.openPicker != nil {
 		newPicker, cmd := m.openPicker.Update(msg)
 		m.openPicker = newPicker
@@ -123,7 +126,10 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if keys.NormalizeKey(keyStr) == "ctrl+t" && len(m.pendingAttachments) > 0 {
 			return m.toggleSendAs()
 		}
-		if m.keyMap.Resolve(keys.ContextComposer, keys.NormalizeKey(keyStr)) == keys.ActionToggleWebPreview {
+		switch m.keyMap.Resolve(keys.ContextComposer, keys.NormalizeKey(keyStr)) {
+		case keys.ActionChooseSticker:
+			return m.openStickerPicker()
+		case keys.ActionToggleWebPreview:
 			m.chat.ToggleWebPreview()
 			return m, nil
 		}

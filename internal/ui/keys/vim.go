@@ -30,7 +30,6 @@ const (
 	ActionOpenExternal    Action = "open_external"
 	ActionOpenContextMenu Action = "open_context_menu"
 	ActionCancel          Action = "cancel"
-	ActionOpenDiscussion  Action = "open_discussion"
 	ActionReply           Action = "reply"
 	ActionReact           Action = "react"
 	ActionEdit            Action = "edit"
@@ -53,7 +52,10 @@ const (
 	ActionDownloadFile    Action = "download_file"
 	ActionCopyMessage     Action = "copy_message"
 	ActionPasteImage      Action = "paste_image"
+
+	ActionOpenDiscussion   Action = "open_discussion"
 	ActionSaveToSaved      Action = "save_to_saved_messages"
+	ActionChooseSticker    Action = "choose_sticker"
 	ActionToggleWebPreview Action = "toggle_web_preview"
 	ActionRemoveWebPreview Action = "remove_web_preview"
 	// Profile actions (#222). ActionShowProfile opens the overlay from wherever

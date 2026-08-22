@@ -34,13 +34,14 @@ func wrappedLineCount(text string, entities []domain.MessageEntity, contentW int
 // msgHeight estimates the rendered line count for a single message:
 // 2 border lines (top with header title + bottom) + wrapped body lines.
 // isBareMedia reports whether a message should render borderless (no message
-// bubble): a static WEBP sticker or a round video note whose image is loaded,
+// bubble): a sticker preview or a round video note whose image is loaded,
 // with no caption, reply, or forward header that would need the bubble layout.
 func (ml *MessageList) isBareMedia(msg domain.Message) bool {
 	if msg.Text != "" || msg.Forward != nil || msg.ReplyToMsgID != 0 || msg.Media == nil {
 		return false
 	}
-	if !domain.IsStaticSticker(msg.Media, msg.Document) && msg.Media.Kind != domain.MediaVideoNote {
+	_, stickerPreview := domain.StickerPreviewSlot(msg.Media, msg.Document)
+	if !stickerPreview && msg.Media.Kind != domain.MediaVideoNote {
 		return false
 	}
 	id, ok := ml.PreviewImageID(msg)

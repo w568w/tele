@@ -284,6 +284,8 @@ func (m *ChatModel) VisibleReadMaxID() int { return m.msgList.VisibleReadMaxID()
 func (m *ChatModel) ComposerFocused() bool { return m.composerFocused }
 func (m *ChatModel) ComposerValue() string { return m.composer.Value() }
 func (m *ChatModel) ComposerHeight() int   { return m.composer.VisualHeight() }
+func (m *ChatModel) PendingReplyID() int   { return m.replyToMsgID }
+func (m *ChatModel) Editing() bool         { return m.editMsgID != 0 }
 func (m *ChatModel) ToggleWebPreview() {
 	m.composer.ToggleWebPreview()
 	m.syncMsgListHeight()

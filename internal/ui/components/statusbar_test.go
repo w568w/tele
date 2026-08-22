@@ -99,6 +99,7 @@ func TestStatusBar_ComposerHints_SendNormal(t *testing.T) {
 	assert.Contains(t, out, "send")
 	assert.Contains(t, out, "normal")
 	assert.Contains(t, out, "ctrl+v paste image")
+	assert.Contains(t, out, "ctrl+e sticker")
 }
 
 func TestStatusBar_AttachStagedNormal_CaptionDrop(t *testing.T) {

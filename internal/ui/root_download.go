@@ -64,8 +64,8 @@ func fetchVideoThumbCmd(ctx context.Context, o Owner, chatID int64, msgID int, d
 	return fetchInlineImageCmd(ctx, o, chatID, msgID, domain.DocThumb, docID, "video thumb download", transform)
 }
 
-func fetchStickerCmd(ctx context.Context, o Owner, chatID int64, msgID int, docID int64) tea.Cmd {
-	return fetchInlineImageCmd(ctx, o, chatID, msgID, domain.DocFull, docID, "sticker download", nil)
+func fetchStickerCmd(ctx context.Context, o Owner, chatID int64, msgID int, docID int64, slot domain.MediaSlot) tea.Cmd {
+	return fetchInlineImageCmd(ctx, o, chatID, msgID, slot, docID, "sticker download", nil)
 }
 
 // fetchAvatarCmd fetches, decodes and hands over a person's avatar. It is a
@@ -333,10 +333,11 @@ func (m RootModel) pendingDownloadCmds(msgs []domain.Message) tea.Cmd {
 				cmds = append(cmds, fetchVideoThumbCmd(m.ctx, m.owner, msg.ChatID, msg.ID, msg.Document.ID, crop))
 			}
 		}
-		// Static WEBP stickers render inline (Kitty only); decode the full document.
-		if m.imageMode == media.ModeKitty && domain.IsStaticSticker(msg.Media, msg.Document) {
+		// Every sticker renders a still image in Kitty: the full WEBP for static
+		// stickers, or Telegram's thumbnail for TGS/WEBM stickers.
+		if slot, ok := domain.StickerPreviewSlot(msg.Media, msg.Document); m.imageMode == media.ModeKitty && ok {
 			if !m.imageCache.Contains(msg.Document.ID) {
-				cmds = append(cmds, fetchStickerCmd(m.ctx, m.owner, msg.ChatID, msg.ID, msg.Document.ID))
+				cmds = append(cmds, fetchStickerCmd(m.ctx, m.owner, msg.ChatID, msg.ID, msg.Document.ID, slot))
 			}
 		}
 	}

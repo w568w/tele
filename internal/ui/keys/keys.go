@@ -122,6 +122,7 @@ func DefaultKeyMap() KeyMap {
 		ContextComposer: {
 			"enter":  ActionConfirm,
 			"esc":    ActionNormal,
+			"ctrl+e": ActionChooseSticker,
 			"ctrl+p": ActionToggleWebPreview,
 			"ctrl+t": ActionToggleSendAs,
 			"ctrl+v": ActionPasteImage,

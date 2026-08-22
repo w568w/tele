@@ -164,12 +164,48 @@ func (k MediaKind) IsVideo() bool {
 	return k == MediaVideo || k == MediaVideoNote
 }
 
-// IsStaticSticker reports whether the media is a sticker whose document is a
-// static WEBP image (renderable inline), as opposed to an animated .tgs or
-// video .webm sticker.
+// IsStaticSticker reports whether the media is a sticker whose full document is
+// a directly decodable WEBP image.
 func IsStaticSticker(m *MediaRef, d *DocumentRef) bool {
 	return m != nil && m.Kind == MediaSticker &&
 		d != nil && d.MimeType == "image/webp"
+}
+
+// StickerPreviewSlot returns the best decodable image available for a sticker.
+// Static WEBP stickers use their full document; animated TGS and video WEBM
+// stickers use Telegram's still document thumbnail.
+func StickerPreviewSlot(m *MediaRef, d *DocumentRef) (MediaSlot, bool) {
+	switch {
+	case IsStaticSticker(m, d):
+		return DocFull, true
+	case m != nil && m.Kind == MediaSticker && d != nil && d.ThumbSize != "":
+		return DocThumb, true
+	default:
+		return 0, false
+	}
+}
+
+// StickerRef is a reusable Telegram sticker document shown in the picker.
+type StickerRef struct {
+	Document DocumentRef
+	Emoji    string
+}
+
+// StickerPackRef identifies an installed Telegram sticker pack. Documents are
+// loaded only when the picker opens that pack, avoiding an RPC for every pack.
+type StickerPackRef struct {
+	ID         int64
+	AccessHash int64
+	Title      string
+	ShortName  string
+}
+
+// StickerCatalog is the first page of the picker: special tabs are immediately
+// usable while installed packs are represented by lazy references.
+type StickerCatalog struct {
+	Recent    []StickerRef
+	Favorites []StickerRef
+	Packs     []StickerPackRef
 }
 
 // MediaRef is the display-level description of a message's media. PhotoRef

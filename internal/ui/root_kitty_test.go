@@ -137,5 +137,42 @@ func TestReconcileKitty_TransmitsOnlyVisible(t *testing.T) {
 	}
 }
 
+// A picker preview and an inline chat sticker share Telegram's document id but
+// not their cell width. Reusing the picker's 16-column placement for the sent
+// message makes Kitty's Unicode placeholders point at the wrong placement and
+// renders a black box until a full chat reset. Reconcile must delete and replace
+// the stale-size placement as soon as the picker closes.
+func TestReconcileKitty_ReplacesPickerPlacementAtChatStickerSize(t *testing.T) {
+	m := NewRootModel(nil, 50, false)
+	m.imageMode = media.ModeKitty
+	m.screen = ScreenMain
+	m.chat.SetRenderer(media.NewKittyRenderer(m.kittyStore))
+	m.chat.SetImageMode(media.ModeKitty)
+	m.chat.SetSize(80, 24)
+
+	const stickerID int64 = 700
+	img := image.NewRGBA(image.Rect(0, 0, 512, 512))
+	m.imageCache.Add(stickerID, img)
+	m.chat.SetKnownImages(m.imageCache)
+	m.chat.SetMessages([]domain.Message{{
+		ID: 1, ChatID: 1, Date: time.Now(),
+		Media:    &domain.MediaRef{Kind: domain.MediaSticker},
+		Document: &domain.DocumentRef{ID: stickerID, MimeType: "image/webp"},
+	}})
+
+	pickerCols, _ := stickerPreviewBox(512, 512)
+	chatCols, _ := m.chat.MediaBoxForID(stickerID, 512, 512)
+	require.NotEqual(t, pickerCols, chatCols, "fixture must exercise two placement widths")
+	m.kittyStore.MarkTransmitted(stickerID, pickerCols)
+	m.kittyLive[stickerID] = true
+	m.kittyLRU = []int64{stickerID}
+
+	cmd := (&m).reconcileKittyCmd()
+
+	require.NotNil(t, cmd, "stale picker placement must schedule delete then retransmit")
+	require.False(t, m.kittyStore.Placed(stickerID), "stale placement is invalid until replacement is transmitted")
+	require.True(t, m.kittyLive[stickerID], "replacement remains tracked while it is in flight")
+}
+
 // Extension derivation moved to the owner in #196; TestExtFromMime in
 // internal/core covers it.

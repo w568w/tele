@@ -124,3 +124,11 @@ type MessageOptionsClient interface {
 	SendMessageNoPreview(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error)
 	RemoveWebPreview(ctx context.Context, peer domain.Peer, msgID int, text string, entities []domain.MessageEntity) error
 }
+
+// StickerClient exposes Telegram's reusable sticker catalogue and sends one of
+// its document references without uploading it again.
+type StickerClient interface {
+	GetStickerCatalog(ctx context.Context) (domain.StickerCatalog, error)
+	GetStickerPack(ctx context.Context, pack domain.StickerPackRef) ([]domain.StickerRef, error)
+	SendSticker(ctx context.Context, peer domain.Peer, sticker domain.StickerRef, replyToMsgID, threadRootID int, randomID int64) (int, error)
+}

@@ -143,6 +143,8 @@ type RootModel struct {
 	contextMenu       *components.ContextMenu
 	chatMenu          *components.ChatContextMenu
 	reactionPicker    *components.ReactionPicker
+	stickerPicker     *stickerPicker
+	stickerPickerGen  int
 	help              *components.HelpModal
 	settings          *components.SettingsModal
 	profile           *components.Profile
@@ -524,6 +526,12 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleCloseMentionPopup()
 	case participantsLoadedMsg:
 		return m.handleParticipantsLoaded(msg)
+	case stickerCatalogLoadedMsg:
+		return m.handleStickerCatalogLoaded(msg)
+	case stickerPackLoadedMsg:
+		return m.handleStickerPackLoaded(msg)
+	case stickerSendDoneMsg:
+		return m.handleStickerSendDone(msg)
 	case components.DeleteMsgRequest:
 		return m.handleDeleteMsg(msg)
 	case components.RetryOutboxRequest:
@@ -651,8 +659,12 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		components.ToggleUnreadRequest,
 		components.AddToFolderRequest,
 		components.ToggleArchiveRequest,
-		components.ComposerFlashOffMsg,
-		tea.PasteMsg:
+		components.ComposerFlashOffMsg:
+		return m.updateUIMsg(msg)
+	case tea.PasteMsg:
+		if m.stickerPicker != nil {
+			return m, nil
+		}
 		return m.updateUIMsg(msg)
 	// mouse input
 	case tea.MouseClickMsg, tea.MouseWheelMsg:

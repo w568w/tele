@@ -16,11 +16,7 @@ func (m RootModel) transmitPhotoCmd(photoID int64, img image.Image) tea.Cmd {
 		return nil
 	}
 	id := m.kittyStore.IDFor(photoID)
-	b := img.Bounds()
-	// Use the message-aware box (sticker cap vs photo cap) so the transmitted
-	// width matches the rendered placeholder width; otherwise the Kitty placement
-	// is never marked ready and the image stays a placeholder box.
-	cols, rows := m.chat.MediaBoxForID(photoID, b.Dx(), b.Dy())
+	cols, rows := m.inlineImageBox(photoID, img)
 	// Encode asynchronously. On success emit kittyEncodedMsg, which the update
 	// loop writes to the terminal and only then marks ready (kittyTransmittedMsg),
 	// so the placeholder grid is never painted before the placement exists. On an
@@ -34,6 +30,18 @@ func (m RootModel) transmitPhotoCmd(photoID int64, img image.Image) tea.Cmd {
 		}
 		return kittyEncodedMsg{photoID: photoID, cols: cols, seq: seq}
 	}
+}
+
+// inlineImageBox is the single source of truth for a placement's cell box. A
+// sticker shown in the picker and the same document shown in chat deliberately
+// use different widths, so a placement can only be reused when Ready matches
+// the box returned here.
+func (m RootModel) inlineImageBox(photoID int64, img image.Image) (int, int) {
+	b := img.Bounds()
+	if m.stickerPicker != nil && m.stickerPicker.selectedID() == photoID {
+		return stickerPreviewBox(b.Dx(), b.Dy())
+	}
+	return m.chat.MediaBoxForID(photoID, b.Dx(), b.Dy())
 }
 
 // retransmitDebounce is the quiet period after the last photo-width change
@@ -115,23 +123,58 @@ func (m *RootModel) reconcileKittyCmd() tea.Cmd {
 		}
 	}
 
-	visible := m.chat.VisiblePhotoIDs()
+	// The modal is drawn over the chat, so its selected sticker owns the desired
+	// size when the same document is also visible behind it. De-duplicate ids to
+	// avoid scheduling two incompatible placements in one reconciliation pass.
+	visible := make([]int64, 0, len(m.chat.VisiblePhotoIDs())+1)
+	seen := make(map[int64]bool)
+	if m.stickerPicker != nil {
+		if id := m.stickerPicker.selectedID(); id != 0 {
+			visible = append(visible, id)
+			seen[id] = true
+		}
+	}
+	for _, id := range m.chat.VisiblePhotoIDs() {
+		if !seen[id] {
+			visible = append(visible, id)
+			seen[id] = true
+		}
+	}
 	visSet := make(map[int64]bool, len(visible))
 	for _, id := range visible {
 		visSet[id] = true
 	}
 
 	for _, id := range visible {
-		if m.kittyLive[id] {
-			m.kittyLRU = touchID(m.kittyLRU, id)
+		img, ok := m.imageCache.Get(id)
+		if !ok {
 			continue
 		}
-		if img, ok := m.imageCache.Get(id); ok {
-			if c := m.transmitPhotoCmd(id, img); c != nil {
-				cmds = append(cmds, c)
-				m.kittyLive[id] = true
-				m.kittyLRU = append(m.kittyLRU, id)
+		cols, _ := m.inlineImageBox(id, img)
+		if m.kittyLive[id] {
+			if !m.kittyStore.Placed(id) || m.kittyStore.Ready(id, cols) {
+				// Keep in-flight and correctly sized placements; stale ones are
+				// replaced after the current transmission completes.
+				m.kittyLRU = touchID(m.kittyLRU, id)
+				continue
 			}
+			// a=T with an existing image id replaces image data and invalidates its
+			// placement. Delete the old id first, then transmit+place the new size in
+			// sequence so the terminal never retains a stale virtual placement.
+			m.kittyStore.Untransmit(id)
+			if c := m.transmitPhotoCmd(id, img); c != nil {
+				cmds = append(cmds, tea.Sequence(
+					tea.Raw(media.DeleteSeq(m.kittyStore.IDFor(id))),
+					c,
+				))
+				m.kittyLRU = touchID(m.kittyLRU, id)
+			}
+			continue
+		}
+		if c := m.transmitPhotoCmd(id, img); c != nil {
+			cmds = append(cmds, c)
+			m.kittyLive[id] = true
+			m.kittyLRU = append(m.kittyLRU, id)
 		}
 	}
 

@@ -201,6 +201,7 @@ func (sb *StatusBar) profile() []footerItem {
 		return []footerItem{
 			{kind: fiSingle, ctx: keys.ContextComposer, action: keys.ActionConfirm},
 			{kind: fiSingle, ctx: keys.ContextComposer, action: keys.ActionPasteImage},
+			{kind: fiSingle, ctx: keys.ContextComposer, action: keys.ActionChooseSticker},
 			{kind: fiSingle, ctx: keys.ContextComposer, action: keys.ActionNormal},
 		}
 	case sb.activePane == "chat":

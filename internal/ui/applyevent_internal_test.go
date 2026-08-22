@@ -477,7 +477,7 @@ func TestFetchStickerCmd_DecodesAWebpFile(t *testing.T) {
 	}
 	o.mediaPaths[mediaKey{1, 5, domain.DocFull}] = path
 
-	msg := fetchStickerCmd(context.Background(), o, 1, 5, 11)()
+	msg := fetchStickerCmd(context.Background(), o, 1, 5, 11, domain.DocFull)()
 
 	ready, ok := msg.(PhotoReadyMsg)
 	if !ok {
