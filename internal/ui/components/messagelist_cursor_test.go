@@ -1,8 +1,10 @@
 package components_test
 
 import (
+	"image"
 	"testing"
 
+	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +66,25 @@ func TestMessageList_CursorUp_ScrollsCursorIntoView(t *testing.T) {
 	ml.View()
 	_, ok := ml.SelectedBubbleRect()
 	assert.True(t, ok, "cursor bubble must be visible after stepping up")
+}
+
+func TestMessageList_CursorUp_FullyRevealsTallPhoto(t *testing.T) {
+	ml := components.NewMessageList(18, 80)
+	ml.SetMessages([]domain.Message{
+		{ID: 1, Text: "older"},
+		{ID: 2, Media: &domain.MediaRef{Kind: domain.MediaPhoto},
+			Photo: &domain.PhotoRef{ID: 42}, Forward: &domain.ForwardInfo{From: "Alice"}},
+		{ID: 3, Text: "newer"},
+	})
+	ml.SetImage(42, image.NewRGBA(image.Rect(0, 0, 400, 400)))
+
+	ml.CursorUp()
+	ml.View()
+	rect, ok := ml.SelectedBubbleRect()
+
+	require.True(t, ok)
+	assert.LessOrEqual(t, rect.Top+rect.Height, ml.ViewHeight(),
+		"selected photo bubble must end above the composer")
 }
 
 // Line-scrolling up (j/k) past the cursor must drag the cursor along so it never

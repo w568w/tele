@@ -102,7 +102,7 @@ func (ml *MessageList) CursorDown() bool {
 	for i := idx + 1; i < len(ml.items); i++ {
 		if ml.selectable(i) {
 			ml.placeCursor(i)
-			ml.revealCursorDown()
+			ml.revealCursorBottom()
 			for j := i + 1; j < len(ml.items); j++ {
 				if ml.selectable(j) {
 					return false
@@ -147,12 +147,13 @@ func (ml *MessageList) revealCursorUp() {
 	if ml.cursorTopRow() < ml.viewHeight/2 {
 		ml.scrollCursorToMiddle()
 	}
+	ml.revealCursorBottom()
 }
 
-// revealCursorDown keeps the cursor on screen after stepping to a newer message:
+// revealCursorBottom keeps the cursor on screen after a cursor move:
 // it descends within the viewport until it reaches the bottom, then the viewport
 // scrolls down just enough to keep the cursor fully visible.
-func (ml *MessageList) revealCursorDown() {
+func (ml *MessageList) revealCursorBottom() {
 	idx := ml.cursorIndex()
 	if idx < 0 || ml.viewHeight <= 0 {
 		return
