@@ -214,9 +214,10 @@ func (s *stubClient) ForwardMessages(_ context.Context, _ domain.Peer, to domain
 	return s.err
 }
 
-func (s *stubClient) SendMessage(_ context.Context, peer domain.Peer, text string, replyTo int, ents []domain.MessageEntity, randomID int64) (domain.Message, error) {
+func (s *stubClient) SendMessage(_ context.Context, peer domain.Peer, text string, replyTo, threadRootID int, ents []domain.MessageEntity, randomID int64) (domain.Message, error) {
 	s.sendMu.Lock()
 	s.sendCount++
+	s.sentPeer = peer
 	s.sentText = text
 	s.sentRandomID = randomID
 	block := s.sendBlock
@@ -243,7 +244,7 @@ func (s *stubClient) SendMessage(_ context.Context, peer domain.Peer, text strin
 	// same, since that is what the caller records (#193).
 	return domain.Message{
 		ID: sentID, ChatID: peer.ID, Text: text, Entities: ents,
-		ReplyToMsgID: replyTo, IsOut: true, Date: time.Unix(1700000000, 0),
+		ReplyToMsgID: replyTo, ThreadRootID: threadRootID, IsOut: true, Date: time.Unix(1700000000, 0),
 	}, nil
 }
 
@@ -257,6 +258,12 @@ func (s *stubClient) lastRandomID() int64 {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	return s.sentRandomID
+}
+
+func (s *stubClient) lastSentPeer() domain.Peer {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	return s.sentPeer
 }
 
 func TestForward_SendsToTheGivenTarget(t *testing.T) {

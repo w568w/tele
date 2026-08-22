@@ -803,6 +803,19 @@ func TestMessageList_ReactionsRenderedOnBottomBorder(t *testing.T) {
 	assert.Contains(t, v, "👍")
 }
 
+func TestMessageList_CommentsRenderedWithReactions(t *testing.T) {
+	ml := components.NewMessageList(20, 80)
+	ml.SetMessages([]domain.Message{{
+		ID: 1, ChatID: 1, Text: "post", Date: time.Now(),
+		HasComments: true, RepliesCount: 12,
+		Reactions: []domain.Reaction{{Emoji: "👍", Count: 3}},
+	}})
+
+	view := stripANSI(ml.View())
+	assert.Contains(t, view, "💬 12")
+	assert.Contains(t, view, "👍 3")
+}
+
 func TestMessageList_NoReactions_NoSeparator(t *testing.T) {
 	ml := components.NewMessageList(20, 80)
 	now := time.Now()

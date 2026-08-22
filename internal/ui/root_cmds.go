@@ -22,7 +22,18 @@ func (m RootModel) markReadCmd() tea.Cmd {
 	if maxID <= 0 || maxID <= m.chat.InboxReadMaxID() {
 		return nil
 	}
-	ctx, owner, chatID := m.ctx, m.owner, m.currentChatID
+	ctx, owner := m.ctx, m.owner
+	if m.discussion != nil {
+		rootID, peer := m.discussion.rootMsgID, m.discussion.peer
+		m.chat.SetInboxReadMaxID(maxID)
+		return func() tea.Msg {
+			if err := owner.MarkDiscussionRead(ctx, peer, rootID, maxID); err != nil {
+				return errStatusBackground("mark discussion read", err)
+			}
+			return nil
+		}
+	}
+	chatID := m.currentChatID
 	return func() tea.Msg {
 		if err := owner.MarkRead(ctx, chatID, maxID); err != nil {
 			return errStatusBackground("mark read", err)

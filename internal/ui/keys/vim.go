@@ -30,6 +30,7 @@ const (
 	ActionOpenExternal    Action = "open_external"
 	ActionOpenContextMenu Action = "open_context_menu"
 	ActionCancel          Action = "cancel"
+	ActionOpenDiscussion  Action = "open_discussion"
 	ActionReply           Action = "reply"
 	ActionReact           Action = "react"
 	ActionEdit            Action = "edit"

@@ -31,10 +31,12 @@ type MediaFile struct {
 type MediaSendRequest struct {
 	Ref          string
 	ChatID       int64
+	Peer         domain.Peer
 	Files        []MediaFile
 	Caption      string
 	Entities     []domain.MessageEntity
 	ReplyToMsgID int
+	ThreadRootID int
 }
 
 // SendMedia puts local files on the durable queue and returns once they are on
@@ -55,9 +57,10 @@ func (o *Owner) SendMedia(_ context.Context, req MediaSendRequest) error {
 	if o.outbox == nil {
 		return &telerr.Error{Kind: telerr.Internal, Op: "outbox.sendmedia", Detail: "no outbox configured"}
 	}
-	// Resolved here to fail fast, and again on every attempt: a peer can become
-	// addressable later, but one that is unknown now is a caller's mistake.
-	if _, err := o.peer(req.ChatID); err != nil {
+	// Resolve once and persist the destination with the queue entry. A discussion
+	// peer is addressable even though it is not an account dialog.
+	peer, err := o.sendPeer(req.ChatID, req.Peer)
+	if err != nil {
 		return err
 	}
 	parts, err := describeFiles(req.Files)
@@ -71,7 +74,7 @@ func (o *Owner) SendMedia(_ context.Context, req MediaSendRequest) error {
 	now := time.Now()
 	for i, group := range partitionMedia(parts) {
 		ref := req.Ref + "#" + strconv.Itoa(i)
-		payload := &domain.OutboxMediaSend{Parts: group}
+		payload := &domain.OutboxMediaSend{Peer: peer, Parts: group, ThreadRootID: req.ThreadRootID}
 		// Telegram renders an album's caption from its first part, and the
 		// caption belongs to the submission rather than to a group: it rides on
 		// the first group only, as does the reply.

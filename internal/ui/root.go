@@ -84,6 +84,7 @@ type RootModel struct {
 	// window move can repeat it. 0 is All Chats.
 	activeFolder  int
 	currentChatID int64
+	discussion    *discussionNav
 	historyLimit  int
 	verbose       bool
 	log           *zap.Logger
@@ -146,6 +147,7 @@ type RootModel struct {
 	settings          *components.SettingsModal
 	profile           *components.Profile
 	openPicker        *components.OpenPicker
+	joinPrompt        *joinDiscussionPrompt
 	reactionTargetID  int
 	mentionPopup      *components.MentionPopup
 	mentionMembers    map[int64][]domain.ChatMember
@@ -476,6 +478,8 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleNotification(msg)
 	case core.Failure:
 		return m.handleFailure(msg)
+	case joinDiscussionRetryMsg:
+		return m.handleJoinDiscussionRetry(msg)
 	case core.Typing:
 		return m.handleTyping(msg)
 	case screens.SendMsgRequest:
@@ -592,7 +596,8 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.subscribeChat(msg.chatID, domain.Peer{})
 		return m, nil
 	// network/data messages
-	case screens.OpenChatMsg,
+	case discussionOpenedMsg,
+		screens.OpenChatMsg,
 		screens.LoadMoreMsg,
 		screens.LoadNewerMsg,
 		PhotoReadyMsg,
@@ -620,6 +625,7 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		screens.SearchUsersResult,
 		components.JumpToMsgRequest,
 		components.ReplyMsgRequest,
+		components.OpenDiscussionRequest,
 		components.ForwardMsgRequest,
 		components.EditMsgRequest,
 		components.CloseContextMenuMsg,

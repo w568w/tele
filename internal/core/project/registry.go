@@ -57,7 +57,7 @@ func carryPin(prev, next Window) Window {
 	if !okPrev || !okNext {
 		return next
 	}
-	if p.ChatID != n.ChatID || p.Anchor.Kind != n.Anchor.Kind || n.Anchor.MsgID != 0 {
+	if p.ChatID != n.ChatID || p.ThreadRootID != n.ThreadRootID || p.Anchor.Kind != n.Anchor.Kind || n.Anchor.MsgID != 0 {
 		return next
 	}
 	n.Anchor.MsgID = p.Anchor.MsgID

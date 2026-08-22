@@ -39,9 +39,11 @@ const (
 
 // OutboxMessage is the payload of an OutboxText entry.
 type OutboxMessage struct {
+	Peer         Peer            `json:"peer,omitempty"`
 	Text         string          `json:"text"`
 	Entities     []MessageEntity `json:"entities,omitempty"`
 	ReplyToMsgID int             `json:"reply_to,omitempty"`
+	ThreadRootID int             `json:"thread_root,omitempty"`
 }
 
 // OutboxMediaSend is the payload of an OutboxMedia entry: one album group, which
@@ -49,10 +51,12 @@ type OutboxMessage struct {
 // files than one group takes becomes several entries, because the group is what
 // Telegram sends atomically (#195).
 type OutboxMediaSend struct {
+	Peer         Peer              `json:"peer,omitempty"`
 	Parts        []OutboxMediaPart `json:"parts"`
 	Caption      string            `json:"caption,omitempty"`
 	Entities     []MessageEntity   `json:"entities,omitempty"`
 	ReplyToMsgID int               `json:"reply_to,omitempty"`
+	ThreadRootID int               `json:"thread_root,omitempty"`
 }
 
 // OutboxMediaPart is one local file of a group. Name and Size are recorded at

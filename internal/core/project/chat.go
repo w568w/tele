@@ -8,6 +8,8 @@ type ChatContents struct {
 	ChatID int64
 	Title  string
 	IsUser bool
+
+	ThreadRootID int
 	// IsGroup covers groups and channels: the message list shows sender names
 	// there and not in a 1:1 chat.
 	IsGroup         bool
@@ -39,7 +41,7 @@ type ChatContents struct {
 // fetches: a window that comes back shorter than it asked for is how the core
 // learns the store fell short (see Owner.needsBackfill).
 func BuildChat(r Reader, w ChatWindow) ChatContents {
-	out := ChatContents{ChatID: w.ChatID}
+	out := ChatContents{ChatID: w.ChatID, ThreadRootID: w.ThreadRootID}
 	chat, ok := r.GetChat(w.ChatID)
 	if ok {
 		out.Title = chat.Title
@@ -51,11 +53,19 @@ func BuildChat(r Reader, w ChatWindow) ChatContents {
 		out.UnreadReactions = chat.UnreadReactionsCount
 		out.Draft = chat.Draft
 	}
+	if w.ThreadRootID != 0 {
+		out.Title = w.ThreadTitle
+		out.IsUser = false
+		out.IsGroup = true
+		out.ReadInboxMaxID = w.ThreadReadInboxMaxID
+		out.ReadOutboxMaxID = w.ThreadReadOutboxMaxID
+		out.Draft = ""
+	}
 	// Read before the empty-history return below: a chat with nothing stored can
 	// still hold a queued send, and that is the only thing it has to show.
-	out.Outbox = r.Outbox(w.ChatID)
+	out.Outbox = filterOutbox(r.Outbox(w.ChatID), w.ThreadRootID)
 
-	all := r.Messages(w.ChatID)
+	all := filterThread(r.Messages(w.ChatID), w.ThreadRootID)
 	if len(all) == 0 {
 		return out
 	}
@@ -87,6 +97,35 @@ func BuildChat(r Reader, w ChatWindow) ChatContents {
 	out.Messages = all[start:end]
 	out.HasOlder = start > 0
 	out.HasNewer = end < len(all)
+	return out
+}
+
+func filterThread(msgs []domain.Message, rootID int) []domain.Message {
+	if rootID == 0 {
+		return msgs
+	}
+	out := make([]domain.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg.ID == rootID || msg.ThreadRootID == rootID || msg.ReplyToMsgID == rootID {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+func filterOutbox(entries []domain.OutboxEntry, rootID int) []domain.OutboxEntry {
+	out := make([]domain.OutboxEntry, 0, len(entries))
+	for _, entry := range entries {
+		entryRoot := 0
+		if entry.Message != nil {
+			entryRoot = entry.Message.ThreadRootID
+		} else if entry.Media != nil {
+			entryRoot = entry.Media.ThreadRootID
+		}
+		if entryRoot == rootID {
+			out = append(out, entry)
+		}
+	}
 	return out
 }
 

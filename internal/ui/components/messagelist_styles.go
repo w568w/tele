@@ -35,7 +35,7 @@ func (ml *MessageList) senderNameStyle(senderID int64) lipgloss.Style {
 	return theme.NewStyle().Foreground(c).Bold(true)
 }
 
-func buildReactStr(reactions []domain.Reaction) string {
+func buildReactContent(reactions []domain.Reaction) string {
 	if len(reactions) == 0 {
 		return ""
 	}
@@ -49,7 +49,19 @@ func buildReactStr(reactions []domain.Reaction) string {
 		}
 	}
 	sep := theme.S().Timestamp.Render(" · ")
-	// The framing spaces are their own cells on the bubble's bottom border,
-	// outside every run's reset, so they carry the canvas rather than nothing.
-	return theme.Pad(1) + strings.Join(parts, sep) + theme.Pad(1)
+	return strings.Join(parts, sep)
+}
+
+func buildMessageMeta(msg domain.Message) string {
+	parts := make([]string, 0, 2)
+	if msg.HasComments {
+		parts = append(parts, theme.S().Timestamp.Render("💬 "+strconv.Itoa(msg.RepliesCount)))
+	}
+	if reactions := buildReactContent(msg.Reactions); reactions != "" {
+		parts = append(parts, reactions)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return theme.Pad(1) + strings.Join(parts, theme.S().Timestamp.Render(" · ")) + theme.Pad(1)
 }

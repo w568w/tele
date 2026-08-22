@@ -55,6 +55,41 @@ func TestBuildChat_NewestAnchorTakesTheTail(t *testing.T) {
 	assert.False(t, got.HasNewer, "the newest message is in the window")
 }
 
+func TestBuildChat_ThreadFiltersOtherGroupMessages(t *testing.T) {
+	chat := domain.Chat{ID: 1, Title: "Discussion", Peer: domain.Peer{ID: 1, Type: domain.PeerSuperGroup}}
+	messages := []domain.Message{
+		{ID: 10, ChatID: 1, ThreadRootID: 10, Date: time.Unix(10, 0)},
+		{ID: 11, ChatID: 1, ReplyToMsgID: 10, Date: time.Unix(11, 0)},
+		{ID: 12, ChatID: 1, ReplyToMsgID: 11, ThreadRootID: 10, Date: time.Unix(12, 0)},
+		{ID: 13, ChatID: 1, Text: "other discussion", Date: time.Unix(13, 0)},
+	}
+	r := readerWith(chat, messages)
+
+	got := project.BuildChat(r, project.ChatWindow{
+		ChatID: 1, ThreadRootID: 10, ThreadTitle: "Comments", Before: 10,
+		Anchor: project.Anchor{Kind: project.AnchorNewest},
+	})
+
+	assert.Equal(t, []int{10, 11, 12}, ids(got.Messages))
+	assert.Equal(t, "Comments", got.Title)
+	assert.Equal(t, 10, got.ThreadRootID)
+}
+
+func TestBuildChat_ThreadDoesNotRequireADialog(t *testing.T) {
+	r := &fakeReader{msgs: map[int64][]domain.Message{
+		8: {{ID: 40, ChatID: 8, ThreadRootID: 40, Date: time.Unix(40, 0)}},
+	}}
+
+	got := project.BuildChat(r, project.ChatWindow{
+		ChatID: 8, ThreadRootID: 40, ThreadTitle: "Comments", Before: 10,
+		Anchor: project.Anchor{Kind: project.AnchorNewest},
+	})
+
+	assert.Equal(t, []int{40}, ids(got.Messages))
+	assert.Equal(t, "Comments", got.Title)
+	assert.Empty(t, project.BuildChatList(r, project.ChatListWindow{Limit: 10}).Rows)
+}
+
 func TestBuildChat_FirstUnreadAnchorKeepsContextAbove(t *testing.T) {
 	r := readerWith(domain.Chat{ID: 1, UnreadCount: 4, ReadInboxMaxID: 6}, msgs(10))
 

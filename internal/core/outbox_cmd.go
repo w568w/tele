@@ -19,9 +19,11 @@ import (
 type SendRequest struct {
 	Ref          string
 	ChatID       int64
+	Peer         domain.Peer
 	Text         string
 	Entities     []domain.MessageEntity
 	ReplyToMsgID int
+	ThreadRootID int
 }
 
 // NewRef returns a fresh idempotency key. Callers generate one per composed
@@ -45,9 +47,10 @@ func (o *Owner) Send(ctx context.Context, req SendRequest) error {
 	if o.outbox == nil {
 		return &telerr.Error{Kind: telerr.Internal, Op: "outbox.send", Detail: "no outbox configured"}
 	}
-	// Resolved here to fail fast, and again on every attempt: a peer can become
-	// addressable later, but one that is unknown now is a caller's mistake.
-	if _, err := o.peer(req.ChatID); err != nil {
+	// Resolve once and persist the destination with the queue entry. A discussion
+	// peer is addressable even though it is not an account dialog.
+	peer, err := o.sendPeer(req.ChatID, req.Peer)
+	if err != nil {
 		return err
 	}
 	entry := domain.OutboxEntry{
@@ -56,7 +59,7 @@ func (o *Owner) Send(ctx context.Context, req SendRequest) error {
 		RandomID:  outbox.RandomIDFor(req.Ref),
 		Kind:      domain.OutboxText,
 		State:     domain.OutboxQueued,
-		Message:   &domain.OutboxMessage{Text: req.Text, Entities: req.Entities, ReplyToMsgID: req.ReplyToMsgID},
+		Message:   &domain.OutboxMessage{Peer: peer, Text: req.Text, Entities: req.Entities, ReplyToMsgID: req.ReplyToMsgID, ThreadRootID: req.ThreadRootID},
 		CreatedAt: time.Now(),
 	}
 	added, isNew, err := o.outbox.Add(entry)
@@ -70,6 +73,13 @@ func (o *Owner) Send(ctx context.Context, req SendRequest) error {
 	o.Refresh()
 	o.wakeOutbox()
 	return nil
+}
+
+func (o *Owner) sendPeer(chatID int64, explicit domain.Peer) (domain.Peer, error) {
+	if explicit.ID != 0 {
+		return explicit, nil
+	}
+	return o.peer(chatID)
 }
 
 // RetryOutbox puts a failed entry back in the queue. Attempts reset: the user

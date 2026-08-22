@@ -139,6 +139,10 @@ type ChatHeader struct {
 	IsGroup         bool
 	Online          bool
 	ReadOutboxMaxID int
+
+	// DraftKey separates a discussion composer from the linked group's normal
+	// draft while both still address the same peer. Zero uses ChatID.
+	DraftKey int64
 }
 
 // SetHeader applies the projection's per-chat state. A switch to a different
@@ -146,9 +150,10 @@ type ChatHeader struct {
 // same chat (a data refresh, e.g. presence) leaves the composer untouched so it
 // cannot clobber text the user is currently typing (#62).
 func (m *ChatModel) SetHeader(h ChatHeader) {
-	changed := h.ChatID != m.header.ChatID
+	oldDraftKey, newDraftKey := m.header.draftKey(), h.draftKey()
+	changed := h.ChatID != m.header.ChatID || oldDraftKey != newDraftKey
 	if changed {
-		m.saveDraft(m.header.ChatID, m.composer.Value())
+		m.saveDraft(oldDraftKey, m.composer.Value())
 		m.typingBase = ""
 		m.lastTypingAt = time.Time{}
 	}
@@ -158,14 +163,14 @@ func (m *ChatModel) SetHeader(h ChatHeader) {
 	m.msgList.SetOutboxReadMaxID(h.ReadOutboxMaxID)
 
 	if changed {
-		m.composer.SetValue(m.drafts[h.ChatID])
+		m.composer.SetValue(m.drafts[newDraftKey])
 		m.syncMsgListHeight()
 	}
 }
 
 // Close clears the pane when no chat is open.
 func (m *ChatModel) Close() {
-	m.saveDraft(m.header.ChatID, m.composer.Value())
+	m.saveDraft(m.header.draftKey(), m.composer.Value())
 	m.header = ChatHeader{}
 	m.peer = domain.Peer{}
 	m.typingBase = ""
@@ -174,6 +179,13 @@ func (m *ChatModel) Close() {
 	m.msgList.SetOutboxReadMaxID(0)
 	m.composer.SetValue("")
 	m.syncMsgListHeight()
+}
+
+func (h ChatHeader) draftKey() int64 {
+	if h.DraftKey != 0 {
+		return h.DraftKey
+	}
+	return h.ChatID
 }
 
 // PeerOnline reports the open chat's presence, for the pane-title dot.
@@ -308,6 +320,10 @@ func (m *ChatModel) PeerUserID() int64 {
 }
 func (m *ChatModel) SelectedMessageReplyToMsgID() int { return m.msgList.SelectedMessageReplyToMsgID() }
 func (m *ChatModel) SelectedMessagePhotoID() int64    { return m.msgList.SelectedMessagePhotoID() }
+
+func (m *ChatModel) SelectedMessageComments() (bool, int, int64) {
+	return m.msgList.SelectedMessageComments()
+}
 func (m *ChatModel) SelectedMessageVideo() (domain.DocumentRef, bool) {
 	return m.msgList.SelectedMessageVideo()
 }

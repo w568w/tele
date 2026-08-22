@@ -40,7 +40,7 @@ const (
 	Internal Kind = "internal"
 )
 
-// Reason refines Rejected: what about the content was refused. The set is
+// Reason refines an error: what was refused. The set is
 // closed, like Kind, so that the decision of what to tell a person is made
 // against a fixed list rather than by matching Telegram's error types — those
 // are mapped exactly once, in internal/tg, and nothing outside it should have to
@@ -67,6 +67,9 @@ const (
 	// ReasonMarkupTooLong means the formatting, rather than the text, is what
 	// exceeds a limit.
 	ReasonMarkupTooLong Reason = "markup_too_long"
+	// Joining is a possible remedy for a refused guest comment, but must remain
+	// an explicit user decision.
+	ReasonGuestSendForbidden Reason = "guest_send_forbidden"
 )
 
 // Error is the only error shape that leaves internal/tg.
@@ -81,7 +84,7 @@ type Error struct {
 	// Detail carries the raw Telegram error type for logs, and is the only
 	// thing worth showing a user when Kind is Internal.
 	Detail string `json:"detail,omitempty"`
-	// Reason is set for Rejected only, and is what a client says to a person.
+	// Reason, when set, is what a client says to a person.
 	// Detail stays alongside it for the logs: the Reason is the remedy, the
 	// Detail is the evidence.
 	Reason Reason `json:"reason,omitempty"`

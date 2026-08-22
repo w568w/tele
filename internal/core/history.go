@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"reflect"
 	"sort"
 
 	"go.uber.org/zap"
@@ -36,6 +37,14 @@ func MergeOlder(older, existing []domain.Message) []domain.Message {
 	return append(combined, existing...)
 }
 
+func (o *Owner) windowPeer(w project.ChatWindow) (domain.Peer, bool) {
+	if w.ThreadRootID != 0 && w.ThreadPeer.ID != 0 {
+		return w.ThreadPeer, true
+	}
+	chat, ok := o.state.Store().GetChat(w.ChatID)
+	return chat.Peer, ok
+}
+
 // backfill fetches older history for a chat subscription whose window the store
 // could not fill and applies it to state; the registry then emits the resulting
 // delta through the same path as any other change. One fetch per subscription is
@@ -46,10 +55,11 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 	}
 	defer o.endFetch(id)
 
-	chat, ok := o.state.Store().GetChat(w.ChatID)
+	peer, ok := o.windowPeer(w)
 	if !ok {
 		return
 	}
+	chat, chatKnown := o.state.Store().GetChat(w.ChatID)
 	existing := o.state.Store().Messages(w.ChatID)
 	contents := project.BuildChat(o.reader(), w)
 	merged := existing
@@ -58,7 +68,7 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 	offsetID := 0
 
 	if needsBackfill(contents, w) {
-		fetched, offset, err := o.fetchHistoryPage(ctx, chat.Peer, w, existing)
+		fetched, offset, err := o.fetchHistoryPage(ctx, peer, w, existing)
 		if err != nil {
 			o.log.Warn("history backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
 			// The client asked for a window it cannot fill itself, so it has to be
@@ -67,13 +77,41 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 			return
 		}
 		offsetID = offset
-		merged = MergeOlder(fetched, existing)
+		if w.ThreadRootID != 0 {
+			merged = mergeHistoryRanges(fetched, existing)
+		} else {
+			merged = MergeOlder(fetched, existing)
+		}
 		historyChanged = len(merged) != len(existing)
 		candidates = append(candidates, fetched...)
 	}
 
+	// Cached channel posts written by an older build have no comment metadata:
+	// those fields did not exist when their JSON was persisted. Refresh only the
+	// visible cached messages so opening a channel upgrades its posts without
+	// clearing history or walking the entire cache.
+	if w.ThreadRootID == 0 && chatKnown && chat.Peer.IsChannel() && len(contents.Messages) > 0 {
+		ids := make([]int, 0, len(contents.Messages))
+		for _, msg := range contents.Messages {
+			if msg.ID > 0 {
+				ids = append(ids, msg.ID)
+			}
+		}
+		if len(ids) > 0 {
+			refreshed, refreshErr := o.client.RefreshMessages(ctx, chat.Peer, ids)
+			if refreshErr != nil {
+				o.log.Warn("channel metadata refresh failed", zap.Int64("chat", w.ChatID), zap.Error(refreshErr))
+			} else {
+				var changed bool
+				merged, changed = mergeRefreshedMessages(merged, refreshed)
+				historyChanged = historyChanged || changed
+				candidates = append(candidates, refreshed...)
+			}
+		}
+	}
+
 	var previewChanged bool
-	merged, previewChanged, err := o.hydrateReplyPreviews(ctx, chat.Peer, merged, candidates)
+	merged, previewChanged, err := o.hydrateReplyPreviews(ctx, peer, merged, candidates)
 	if err != nil {
 		o.log.Warn("reply preview backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
 	}
@@ -98,6 +136,11 @@ func (o *Owner) fetchHistoryPage(ctx context.Context, peer domain.Peer, w projec
 		window, err := o.fetchAnchorWindow(ctx, peer, w)
 		return window, w.Anchor.MsgID, err
 	}
+	if w.ThreadRootID != 0 {
+		offsetID := oldestThreadReplyID(existing, w.ThreadRootID)
+		fetched, err := o.client.GetReplies(ctx, peer, w.ThreadRootID, offsetID, o.Config().UI.HistoryLimit)
+		return fetched, offsetID, err
+	}
 
 	offsetID := 0
 	if len(existing) > 0 {
@@ -108,13 +151,24 @@ func (o *Owner) fetchHistoryPage(ctx context.Context, peer domain.Peer, w projec
 }
 
 func (o *Owner) fetchAnchorWindow(ctx context.Context, peer domain.Peer, w project.ChatWindow) ([]domain.Message, error) {
-	window, err := o.client.GetHistoryWindow(ctx, peer, w.Anchor.MsgID, w.Before, w.After)
+	var (
+		window []domain.Message
+		err    error
+	)
+	if w.ThreadRootID != 0 {
+		window, err = o.client.GetRepliesWindow(ctx, peer, w.ThreadRootID, w.Anchor.MsgID, w.Before, w.After)
+	} else {
+		window, err = o.client.GetHistoryWindow(ctx, peer, w.Anchor.MsgID, w.Before, w.After)
+	}
 	if err != nil || hasMessage(window, w.Anchor.MsgID) {
 		return window, err
 	}
 	target, err := o.client.RefreshMessage(ctx, peer, w.Anchor.MsgID)
 	if err != nil {
 		return nil, err
+	}
+	if w.ThreadRootID != 0 {
+		target.ThreadRootID = w.ThreadRootID
 	}
 	return mergeHistoryRanges([]domain.Message{target}, window), nil
 }
@@ -126,7 +180,7 @@ func (o *Owner) fetchAnchorWindow(ctx context.Context, peer domain.Peer, w proje
 func (o *Owner) moveAnchoredWindow(ctx context.Context, id project.SubID, w project.ChatWindow) {
 	defer o.endFetch(id)
 
-	chat, ok := o.state.Store().GetChat(w.ChatID)
+	peer, ok := o.windowPeer(w)
 	if !ok {
 		return
 	}
@@ -146,7 +200,7 @@ func (o *Owner) moveAnchoredWindow(ctx context.Context, id project.SubID, w proj
 
 	var fetched []domain.Message
 	if len(segment) == 0 {
-		window, err := o.fetchAnchorWindow(ctx, chat.Peer, w)
+		window, err := o.fetchAnchorWindow(ctx, peer, w)
 		if err != nil {
 			o.failAnchoredWindow(w, err)
 			return
@@ -160,7 +214,14 @@ func (o *Owner) moveAnchoredWindow(ctx context.Context, id project.SubID, w proj
 			if limit <= 0 {
 				limit = w.Before - before
 			}
-			older, err := o.client.GetHistory(ctx, chat.Peer, segment[0].ID, limit)
+			var older []domain.Message
+			var err error
+			if w.ThreadRootID != 0 {
+				offsetID := oldestThreadReplyID(segment, w.ThreadRootID)
+				older, err = o.client.GetReplies(ctx, peer, w.ThreadRootID, offsetID, limit)
+			} else {
+				older, err = o.client.GetHistory(ctx, peer, segment[0].ID, limit)
+			}
 			if err != nil {
 				o.failAnchoredWindow(w, err)
 				return
@@ -172,7 +233,13 @@ func (o *Owner) moveAnchoredWindow(ctx context.Context, id project.SubID, w proj
 			if limit <= 0 {
 				limit = w.After - after
 			}
-			newer, err := o.client.GetHistoryWindow(ctx, chat.Peer, segment[len(segment)-1].ID, 0, limit)
+			var newer []domain.Message
+			var err error
+			if w.ThreadRootID != 0 {
+				newer, err = o.client.GetRepliesWindow(ctx, peer, w.ThreadRootID, segment[len(segment)-1].ID, 0, limit)
+			} else {
+				newer, err = o.client.GetHistoryWindow(ctx, peer, segment[len(segment)-1].ID, 0, limit)
+			}
 			if err != nil {
 				o.failAnchoredWindow(w, err)
 				return
@@ -195,7 +262,7 @@ func (o *Owner) moveAnchoredWindow(ctx context.Context, id project.SubID, w proj
 	merged := mergeHistoryRanges(segment, existing)
 	var previewChanged bool
 	var err error
-	merged, previewChanged, err = o.hydrateReplyPreviews(ctx, chat.Peer, merged, segment)
+	merged, previewChanged, err = o.hydrateReplyPreviews(ctx, peer, merged, segment)
 	if err != nil {
 		o.log.Warn("reply preview backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
 	}
@@ -264,6 +331,32 @@ func mergeHistoryRanges(incoming, existing []domain.Message) []domain.Message {
 	return out
 }
 
+// mergeRefreshedMessages replaces matching cached messages with current server
+// values while preserving a locally hydrated reply preview the refresh does not
+// carry. It never inserts a message outside the requested visible window.
+func mergeRefreshedMessages(existing, refreshed []domain.Message) ([]domain.Message, bool) {
+	byID := make(map[int]domain.Message, len(refreshed))
+	for _, msg := range refreshed {
+		byID[msg.ID] = msg
+	}
+	out := append([]domain.Message(nil), existing...)
+	changed := false
+	for i, old := range out {
+		fresh, ok := byID[old.ID]
+		if !ok {
+			continue
+		}
+		if fresh.ReplyPreview == nil {
+			fresh.ReplyPreview = old.ReplyPreview
+		}
+		if !reflect.DeepEqual(old, fresh) {
+			out[i] = fresh
+			changed = true
+		}
+	}
+	return out, changed
+}
+
 func hasMessage(msgs []domain.Message, id int) bool {
 	for _, msg := range msgs {
 		if msg.ID == id {
@@ -271,6 +364,19 @@ func hasMessage(msgs []domain.Message, id int) bool {
 		}
 	}
 	return false
+}
+
+func oldestThreadReplyID(msgs []domain.Message, rootID int) int {
+	oldest := 0
+	for _, msg := range msgs {
+		if msg.ID == rootID || (msg.ThreadRootID != rootID && msg.ReplyToMsgID != rootID) {
+			continue
+		}
+		if oldest == 0 || msg.ID < oldest {
+			oldest = msg.ID
+		}
+	}
+	return oldest
 }
 
 func needsReplyPreviews(msgs []domain.Message) bool {
@@ -341,10 +447,6 @@ func (o *Owner) hydrateIncomingReply(msg domain.Message) {
 	if o.client == nil {
 		return
 	}
-	chat, ok := o.state.Store().GetChat(msg.ChatID)
-	if !ok {
-		return
-	}
 	var original domain.Message
 	found := false
 	for _, stored := range o.state.Store().Messages(msg.ChatID) {
@@ -354,6 +456,10 @@ func (o *Owner) hydrateIncomingReply(msg domain.Message) {
 		}
 	}
 	if !found {
+		chat, ok := o.state.Store().GetChat(msg.ChatID)
+		if !ok {
+			return
+		}
 		var err error
 		original, err = o.client.RefreshMessage(o.ctx, chat.Peer, msg.ReplyToMsgID)
 		if err != nil {

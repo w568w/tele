@@ -7,6 +7,7 @@ import (
 
 	"github.com/sorokin-vladimir/tele/internal/core"
 	"github.com/sorokin-vladimir/tele/internal/core/project"
+	"github.com/sorokin-vladimir/tele/internal/telerr"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 )
 
@@ -30,7 +31,11 @@ func (m RootModel) handleChatListDelta(d *project.ChatListDelta) (RootModel, tea
 	switch d.Kind {
 	case project.ChatListReset:
 		m.chatList.SetWindow(d.Offset, d.Total, d.Rows)
-		m.chatList.SetActive(m.currentChatID)
+		activeChatID := m.currentChatID
+		if m.discussion != nil {
+			activeChatID = m.discussion.sourceChat.ID
+		}
+		m.chatList.SetActive(activeChatID)
 
 	case project.ChatListRow:
 		m.chatList.SetRow(d.Row)
@@ -80,6 +85,15 @@ func (m RootModel) handleFailure(f core.Failure) (RootModel, tea.Cmd) {
 		return m, nil
 	}
 	if f.Op == core.OpSend {
+		if e, ok := telerr.As(f.Err); ok && e.Reason == telerr.ReasonGuestSendForbidden &&
+			f.Ref != "" && f.ChatID == m.currentChatID && m.discussion != nil {
+			// The server, not local membership state, is the gate. Merely opening
+			// or reading a discussion must never offer to join it.
+			if m.joinPrompt == nil {
+				m.joinPrompt = &joinDiscussionPrompt{chatID: f.ChatID, ref: f.Ref}
+			}
+			return m, nil
+		}
 		// A refused send has nothing to blank out: the message is still on
 		// screen, marked, and can be retried. Say it once and move on (#193).
 		return m, func() tea.Msg { return StatusErrMsg{Text: text, Sev: sev} }

@@ -78,7 +78,7 @@ func (m RootModel) focusPane(target Focus) (tea.Model, tea.Cmd) {
 		m.statusBar.SetActivePane("chat")
 		// A reaction that arrived while the pane was not focused is only being
 		// looked at now, so this is when it counts as seen.
-		if m.chatUnreadReactions > 0 {
+		if m.discussion == nil && m.chatUnreadReactions > 0 {
 			return m, m.readReactionsCmd(m.currentChatID)
 		}
 	}

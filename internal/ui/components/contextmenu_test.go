@@ -393,6 +393,19 @@ func TestNewContextMenu_NotReply_NoJumpToOriginal(t *testing.T) {
 	assert.NotContains(t, view, "Jump to original")
 }
 
+func TestContextMenuWithComments_OpensDiscussion(t *testing.T) {
+	cm := components.NewContextMenu(42, false, 0, 0, 0, false, true, nil, defaultKM())
+	cm.SetComments(7, 99)
+	assert.Contains(t, stripANSI(cm.View()), "View comments (7)")
+
+	_, cmd := cm.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	request, ok := cmd().(components.OpenDiscussionRequest)
+	require.True(t, ok)
+	assert.Equal(t, 42, request.MsgID)
+	assert.Equal(t, int64(99), request.DiscussionChatID)
+}
+
 func TestContextMenu_React_EmitsReactMsgRequest(t *testing.T) {
 	cm := components.NewContextMenu(42, false, 0, 0, 0, false, false, nil, defaultKM())
 	// items: Reply, React — cursor on React after one J

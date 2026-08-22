@@ -60,6 +60,24 @@ func TestConvertReactions_PreservesCustomEmoji(t *testing.T) {
 	assert.Equal(t, 3, got[0].Count)
 }
 
+func TestConvertMessage_CommentsAndThreadAddress(t *testing.T) {
+	replies := tg.MessageReplies{Comments: true, Replies: 12}
+	replies.SetChannelID(99)
+	raw := &tg.Message{
+		ID: 5, Date: 1700000000,
+		ReplyTo: &tg.MessageReplyHeader{ReplyToMsgID: 3, ReplyToTopID: 1},
+	}
+	raw.SetReplies(replies)
+
+	msg, ok := convertMessage(raw, 10)
+	require.True(t, ok)
+	assert.Equal(t, 3, msg.ReplyToMsgID)
+	assert.Equal(t, 1, msg.ThreadRootID)
+	assert.True(t, msg.HasComments)
+	assert.Equal(t, 12, msg.RepliesCount)
+	assert.Equal(t, int64(99), msg.DiscussionChatID)
+}
+
 func TestConvertMessage_Mentioned(t *testing.T) {
 	raw := &tg.Message{ID: 7, Date: 1700000000, Mentioned: true, Message: "@you hi"}
 	out, ok := convertMessage(raw, 1)

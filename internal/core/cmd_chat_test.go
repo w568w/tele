@@ -38,6 +38,9 @@ type stubClient struct {
 	sentText     string
 	typingCalls  int
 	draftText    string
+	joinedPeer   domain.Peer
+	joinErr      error
+	discussion   domain.Discussion
 	searchedFor  string
 	searchLimit  int
 
@@ -47,6 +50,7 @@ type stubClient struct {
 	sendCount    int
 	sentRandomID int64
 	sentID       int
+	sentPeer     domain.Peer
 	// sendBlock, when set, holds SendMessage open so a test can catch an entry
 	// mid-flight and drop the owner under it.
 	sendBlock chan struct{}
@@ -99,6 +103,15 @@ func (s *stubClient) MarkRead(_ context.Context, _ domain.Peer, maxID int) error
 func (s *stubClient) ReadReactions(_ context.Context, _ domain.Peer) error { return s.err }
 
 func (s *stubClient) ReadMentions(_ context.Context, _ domain.Peer) error { return s.err }
+
+func (s *stubClient) JoinChannel(_ context.Context, peer domain.Peer) error {
+	s.joinedPeer = peer
+	return s.joinErr
+}
+
+func (s *stubClient) GetDiscussion(_ context.Context, _ domain.Peer, _ int, _ int64) (domain.Discussion, error) {
+	return s.discussion, s.err
+}
 
 // The media send path (#195). UploadFile reports two progress frames so the
 // aggregation across an entry's parts is observable.

@@ -257,9 +257,19 @@ type Message struct {
 	// grouped_id. 0 means the message is not part of an album.
 	GroupedID    int64
 	ReplyToMsgID int // 0 if not a reply
+	// ThreadRootID identifies the discussion/thread this message belongs to.
+	// Zero means ordinary chat history. Direct replies to the root can omit it
+	// on the wire; thread projections also match ReplyToMsgID against the root.
+	ThreadRootID int
 	ReplyPreview *ReplyPreview
 	EditDate     *time.Time // nil if not edited
 	Reactions    []Reaction
+	// HasComments and RepliesCount come from message.replies on a channel post.
+	// DiscussionChatID is the associated discussion supergroup, when Telegram
+	// includes it in the preview.
+	HasComments      bool
+	RepliesCount     int
+	DiscussionChatID int64
 	// HasUnreadReactions is true when the raw message carried at least one recent
 	// reaction flagged unread (a not-yet-viewed reaction on one of our messages).
 	HasUnreadReactions bool
@@ -271,6 +281,16 @@ type Message struct {
 	// LocalMedia describes the files of a queued media send. Set only on the
 	// bubble a client draws for an outbox entry; nil for real messages.
 	LocalMedia *LocalMedia
+}
+
+// Discussion is the resolved thread behind a channel post. Its messages are
+// addressed to Chat (the linked supergroup), not to the source channel.
+type Discussion struct {
+	Chat            Chat
+	RootMsgID       int
+	Messages        []Message
+	ReadInboxMaxID  int
+	ReadOutboxMaxID int
 }
 
 // ReplyPreview carries the original message fields needed by a reply bubble

@@ -74,7 +74,7 @@ func (o *Owner) attempt(ctx context.Context, e domain.OutboxEntry) {
 		o.attemptMedia(ctx, e)
 		return
 	}
-	peer, err := o.peer(e.ChatID)
+	peer, err := o.outboxPeer(e)
 	if err != nil {
 		o.recordFailure(e, err)
 		return
@@ -90,7 +90,7 @@ func (o *Owner) attempt(ctx context.Context, e domain.OutboxEntry) {
 	o.log.Debug("outbox: sending",
 		zap.String("ref", e.Ref), zap.Int64("chat_id", e.ChatID), zap.Int("attempt", e.Attempts))
 
-	sent, err := o.client.SendMessage(ctx, peer, e.Message.Text, e.Message.ReplyToMsgID, e.Message.Entities, e.RandomID)
+	sent, err := o.client.SendMessage(ctx, peer, e.Message.Text, e.Message.ReplyToMsgID, e.Message.ThreadRootID, e.Message.Entities, e.RandomID)
 	if ctx.Err() != nil {
 		// The owner is going away. The row stays in "sending" on purpose: the
 		// next process resets it and resends with the same random_id.
@@ -101,6 +101,16 @@ func (o *Owner) attempt(ctx context.Context, e domain.OutboxEntry) {
 		return
 	}
 	o.recordSent(e, sent)
+}
+
+func (o *Owner) outboxPeer(e domain.OutboxEntry) (domain.Peer, error) {
+	if e.Message != nil && e.Message.Peer.ID != 0 {
+		return e.Message.Peer, nil
+	}
+	if e.Media != nil && e.Media.Peer.ID != 0 {
+		return e.Media.Peer, nil
+	}
+	return o.peer(e.ChatID)
 }
 
 // recordFailure applies the queue's policy to a refused send.
@@ -121,7 +131,7 @@ func (o *Owner) recordFailure(e domain.OutboxEntry, err error) {
 			zap.String("ref", e.Ref), zap.String("kind", string(e.ErrKind)))
 		// Said once, when it happens. The bubble keeps only a glyph; the reason
 		// is repeated by the client when the cursor rests on the entry (#193).
-		o.publishFailure(Failure{ChatID: e.ChatID, Op: OpSend, Err: err})
+		o.publishFailure(Failure{ChatID: e.ChatID, Ref: e.Ref, Op: OpSend, Err: err})
 	} else {
 		e.State = domain.OutboxQueued
 		e.NextAttemptAt = time.Now().Add(delay)

@@ -82,7 +82,9 @@ func TestReopen_KeepsEntriesAndResetsSending(t *testing.T) {
 
 	s, err := NewStore(openDB(t, path))
 	require.NoError(t, err)
-	e, _, err := s.Add(textEntry("a", 10, "one"))
+	e := textEntry("a", 10, "one")
+	e.Message.Peer = domain.Peer{ID: 10, Type: domain.PeerSuperGroup, AccessHash: 100}
+	e, _, err = s.Add(e)
 	require.NoError(t, err)
 	e.State = domain.OutboxSending
 	require.NoError(t, s.Update(e))
@@ -96,6 +98,7 @@ func TestReopen_KeepsEntriesAndResetsSending(t *testing.T) {
 	assert.Equal(t, e.RandomID, got.RandomID, "the random_id must survive: it is what makes the retry safe")
 	require.NotNil(t, got.Message)
 	assert.Equal(t, "one", got.Message.Text)
+	assert.Equal(t, e.Message.Peer, got.Message.Peer)
 	assert.True(t, got.NextAttemptAt.IsZero())
 }
 

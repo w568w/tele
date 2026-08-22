@@ -43,6 +43,20 @@ func (m *mockClient) GetHistoryWindow(_ context.Context, _ domain.Peer, _ int, _
 	return m.history, nil
 }
 
+func (m *mockClient) GetDiscussion(_ context.Context, _ domain.Peer, _ int, _ int64) (domain.Discussion, error) {
+	return domain.Discussion{}, nil
+}
+
+func (m *mockClient) GetReplies(_ context.Context, _ domain.Peer, _, _, _ int) ([]domain.Message, error) {
+	return nil, nil
+}
+
+func (m *mockClient) GetRepliesWindow(_ context.Context, _ domain.Peer, _, _, _, _ int) ([]domain.Message, error) {
+	return nil, nil
+}
+
+func (m *mockClient) JoinChannel(_ context.Context, _ domain.Peer) error { return nil }
+
 func (m *mockClient) RefreshMessage(_ context.Context, _ domain.Peer, _ int) (domain.Message, error) {
 	return domain.Message{}, nil
 }
@@ -51,7 +65,7 @@ func (m *mockClient) RefreshMessages(_ context.Context, _ domain.Peer, _ []int) 
 	return nil, nil
 }
 
-func (m *mockClient) SendMessage(_ context.Context, _ domain.Peer, text string, _ int, _ []domain.MessageEntity, _ int64) (domain.Message, error) {
+func (m *mockClient) SendMessage(_ context.Context, _ domain.Peer, text string, _, _ int, _ []domain.MessageEntity, _ int64) (domain.Message, error) {
 	m.sent = append(m.sent, text)
 	return domain.Message{}, nil
 }
@@ -81,6 +95,9 @@ func (m *mockClient) UploadMedia(_ context.Context, _ domain.Peer, media tg.Inpu
 }
 
 func (m *mockClient) MarkRead(_ context.Context, _ domain.Peer, _ int) error { return nil }
+func (m *mockClient) MarkDiscussionRead(_ context.Context, _ domain.Peer, _, _ int) error {
+	return nil
+}
 
 func (m *mockClient) MarkDialogUnread(_ context.Context, _ domain.Peer, _ bool) error { return nil }
 

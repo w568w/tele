@@ -20,6 +20,13 @@ type Client interface {
 	GetHistory(ctx context.Context, peer domain.Peer, offsetID int, limit int) ([]domain.Message, error)
 	// GetHistoryWindow returns a contiguous window around anchorID.
 	GetHistoryWindow(ctx context.Context, peer domain.Peer, anchorID, before, after int) ([]domain.Message, error)
+	// GetDiscussion resolves the linked-supergroup thread behind a channel post.
+	GetDiscussion(ctx context.Context, peer domain.Peer, msgID int, discussionChatID int64) (domain.Discussion, error)
+	GetReplies(ctx context.Context, peer domain.Peer, rootMsgID, offsetID, limit int) ([]domain.Message, error)
+	GetRepliesWindow(ctx context.Context, peer domain.Peer, rootMsgID, anchorID, before, after int) ([]domain.Message, error)
+	// JoinChannel explicitly joins a channel or supergroup. Callers must not use
+	// it as a prerequisite for discussion sends: guest sending is tried first.
+	JoinChannel(ctx context.Context, peer domain.Peer) error
 	// RefreshMessage re-fetches a single message to obtain fresh media file
 	// references (Telegram FileReferences expire).
 	RefreshMessage(ctx context.Context, peer domain.Peer, msgID int) (domain.Message, error)
@@ -35,7 +42,7 @@ type Client interface {
 	// randomID is the caller's deduplication key: Telegram deduplicates on it,
 	// so it must stay the same across every retry of one logical send. That is
 	// what makes an at-least-once outbox safe.
-	SendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error)
+	SendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error)
 	// GetParticipants returns mention candidates for a group/channel peer.
 	GetParticipants(ctx context.Context, peer domain.Peer) ([]domain.ChatMember, error)
 	// GetUser fetches a user's full profile. The address carries how the person
@@ -58,6 +65,7 @@ type Client interface {
 	// rejects raw inputMediaUploaded* constructors.
 	UploadMedia(ctx context.Context, peer domain.Peer, media tg.InputMediaClass) (tg.InputMediaClass, error)
 	MarkRead(ctx context.Context, peer domain.Peer, maxID int) error
+	MarkDiscussionRead(ctx context.Context, peer domain.Peer, rootMsgID, maxID int) error
 	// MarkDialogUnread sets or clears the manual unread mark on a dialog.
 	MarkDialogUnread(ctx context.Context, peer domain.Peer, unread bool) error
 	// ReadReactions marks all unread reactions in a dialog as read

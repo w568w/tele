@@ -60,12 +60,15 @@ func (m RootModel) handleSendMsg(msg screens.SendMsgRequest) (RootModel, tea.Cmd
 		return m, nil
 	}
 	ctx, owner := m.ctx, m.owner
+	peer, replyToMsgID, threadRootID := m.sendTarget(msg.ReplyToMsgID)
 	req := core.SendRequest{
 		Ref:          core.NewRef(),
 		ChatID:       m.currentChatID,
+		Peer:         peer,
 		Text:         msg.Text,
 		Entities:     msg.Entities,
-		ReplyToMsgID: msg.ReplyToMsgID,
+		ReplyToMsgID: replyToMsgID,
+		ThreadRootID: threadRootID,
 	}
 	return m, func() tea.Msg {
 		if err := owner.Send(ctx, req); err != nil {
@@ -91,13 +94,16 @@ func (m RootModel) handleSendMedia(msg screens.SendMediaRequest) (RootModel, tea
 	for _, a := range m.pendingAttachments {
 		files = append(files, core.MediaFile{Path: a.path, SendAs: a.sendAs})
 	}
+	peer, replyToMsgID, threadRootID := m.sendTarget(msg.ReplyToMsgID)
 	req := core.MediaSendRequest{
 		Ref:          core.NewRef(),
 		ChatID:       m.currentChatID,
+		Peer:         peer,
 		Files:        files,
 		Caption:      msg.Caption,
 		Entities:     msg.Entities,
-		ReplyToMsgID: msg.ReplyToMsgID,
+		ReplyToMsgID: replyToMsgID,
+		ThreadRootID: threadRootID,
 	}
 	m.clearPendingAttachments()
 	ctx, owner := m.ctx, m.owner
@@ -107,6 +113,17 @@ func (m RootModel) handleSendMedia(msg screens.SendMediaRequest) (RootModel, tea
 		}
 		return nil
 	}
+}
+
+func (m RootModel) sendTarget(replyToMsgID int) (domain.Peer, int, int) {
+	if m.discussion == nil {
+		return m.chat.CurrentPeer(), replyToMsgID, 0
+	}
+	rootID := m.discussion.rootMsgID
+	if replyToMsgID == 0 {
+		replyToMsgID = rootID
+	}
+	return m.discussion.peer, replyToMsgID, rootID
 }
 
 // handleUploadProgress moves a queued send's progress bar. It is an event, not
@@ -233,7 +250,7 @@ func (m RootModel) SetComposerValueForTest(s string) RootModel {
 // a message being edited, not a draft, and entering edit already discarded any
 // prior draft.
 func (m RootModel) flushCurrentDraftCmd() tea.Cmd {
-	if m.st == nil || m.currentChatID == 0 || m.chat.EditMsgID() != 0 {
+	if m.discussion != nil || m.st == nil || m.currentChatID == 0 || m.chat.EditMsgID() != 0 {
 		return nil
 	}
 	chat, ok := m.st.GetChat(m.currentChatID)

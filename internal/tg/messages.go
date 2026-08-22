@@ -137,7 +137,7 @@ func (c *GotdClient) getHistory(ctx context.Context, peer domain.Peer, req *tg.M
 	return msgs, err
 }
 
-func (c *GotdClient) SendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error) {
+func (c *GotdClient) SendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64) (domain.Message, error) {
 	api, err := c.acquireAPI()
 	if err != nil {
 		return domain.Message{}, err
@@ -147,7 +147,7 @@ func (c *GotdClient) SendMessage(ctx context.Context, peer domain.Peer, text str
 	inputPeer := peerToInput(peer)
 	var sent domain.Message
 	err = WithRetry(ctx, func() error {
-		updates, err := api.MessagesSendMessage(ctx, buildSendRequest(inputPeer, text, randomID, replyToMsgID, entities))
+		updates, err := api.MessagesSendMessage(ctx, buildSendRequest(inputPeer, text, randomID, replyToMsgID, threadRootID, entities))
 		if err != nil {
 			c.log.Error("MessagesSendMessage failed", zap.Error(err))
 			return err
@@ -162,7 +162,7 @@ func (c *GotdClient) SendMessage(ctx context.Context, peer domain.Peer, text str
 		// a reply that does carry the message (groups, channels) is applied by id,
 		// so the pipeline delivering it a second time is a no-op. Media keeps
 		// suppressing until #195.
-		sent = sentMessage(updates, randomID, peer, text, replyToMsgID, entities)
+		sent = sentMessage(updates, randomID, peer, text, replyToMsgID, threadRootID, entities)
 		c.traceLog.Debug("SendMessage ok", zap.Int64("peer_id", peer.ID), zap.Int("real_id", sent.ID))
 		return nil
 	})
@@ -176,6 +176,7 @@ type SendMediaParams struct {
 	Media        tg.InputMediaClass
 	Caption      string
 	ReplyToMsgID int
+	ThreadRootID int
 	Entities     []domain.MessageEntity
 	// RandomID is the caller's deduplication key. It must stay the same across
 	// every retry of one logical send, or Telegram cannot tell a retry from a
@@ -193,7 +194,7 @@ func (c *GotdClient) SendMedia(ctx context.Context, p SendMediaParams) (int, err
 	inputPeer := peerToInput(p.Peer)
 	var realID int
 	err = WithRetry(ctx, func() error {
-		updates, err := api.MessagesSendMedia(ctx, buildSendMediaRequest(inputPeer, p.Media, p.Caption, p.RandomID, p.ReplyToMsgID, p.Entities))
+		updates, err := api.MessagesSendMedia(ctx, buildSendMediaRequest(inputPeer, p.Media, p.Caption, p.RandomID, p.ReplyToMsgID, p.ThreadRootID, p.Entities))
 		if err != nil {
 			c.log.Error("MessagesSendMedia failed", zap.Error(err))
 			return err
@@ -289,19 +290,27 @@ func buildForwardRequest(fromPeer, toPeer tg.InputPeerClass, ids []int, randomID
 	}
 }
 
-func buildSendRequest(inputPeer tg.InputPeerClass, text string, randomID int64, replyToMsgID int, entities []domain.MessageEntity) *tg.MessagesSendMessageRequest {
+func buildSendRequest(inputPeer tg.InputPeerClass, text string, randomID int64, replyToMsgID, threadRootID int, entities []domain.MessageEntity) *tg.MessagesSendMessageRequest {
 	req := &tg.MessagesSendMessageRequest{
 		Peer:     inputPeer,
 		Message:  text,
 		RandomID: randomID,
 	}
 	if replyToMsgID != 0 {
-		req.ReplyTo = &tg.InputReplyToMessage{ReplyToMsgID: replyToMsgID}
+		req.ReplyTo = inputReplyTo(replyToMsgID, threadRootID)
 	}
 	if ent := convertToTGEntities(entities); len(ent) > 0 {
 		req.Entities = ent
 	}
 	return req
+}
+
+func inputReplyTo(replyToMsgID, threadRootID int) *tg.InputReplyToMessage {
+	reply := &tg.InputReplyToMessage{ReplyToMsgID: replyToMsgID}
+	if threadRootID != 0 && replyToMsgID != threadRootID {
+		reply.TopMsgID = threadRootID
+	}
+	return reply
 }
 
 // convertToTGEntities maps store entities to Telegram send-side entities.
@@ -340,7 +349,7 @@ func convertToTGEntities(es []domain.MessageEntity) []tg.MessageEntityClass {
 	return out
 }
 
-func buildSendMediaRequest(inputPeer tg.InputPeerClass, media tg.InputMediaClass, caption string, randomID int64, replyToMsgID int, entities []domain.MessageEntity) *tg.MessagesSendMediaRequest {
+func buildSendMediaRequest(inputPeer tg.InputPeerClass, media tg.InputMediaClass, caption string, randomID int64, replyToMsgID, threadRootID int, entities []domain.MessageEntity) *tg.MessagesSendMediaRequest {
 	req := &tg.MessagesSendMediaRequest{
 		Peer:     inputPeer,
 		Media:    media,
@@ -348,7 +357,7 @@ func buildSendMediaRequest(inputPeer tg.InputPeerClass, media tg.InputMediaClass
 		RandomID: randomID,
 	}
 	if replyToMsgID != 0 {
-		req.ReplyTo = &tg.InputReplyToMessage{ReplyToMsgID: replyToMsgID}
+		req.ReplyTo = inputReplyTo(replyToMsgID, threadRootID)
 	}
 	if ent := convertToTGEntities(entities); len(ent) > 0 {
 		req.Entities = ent
@@ -625,12 +634,13 @@ func extractSentMessageID(updates tg.UpdatesClass, randomID int64) int {
 //
 // A group or channel does answer with the whole message; that one is preferred,
 // since it carries what the server decided rather than what was asked for.
-func sentMessage(updates tg.UpdatesClass, randomID int64, peer domain.Peer, text string, replyToMsgID int, entities []domain.MessageEntity) domain.Message {
+func sentMessage(updates tg.UpdatesClass, randomID int64, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity) domain.Message {
 	msg := domain.Message{
 		ChatID:       peer.ID,
 		Text:         text,
 		Entities:     entities,
 		ReplyToMsgID: replyToMsgID,
+		ThreadRootID: threadRootID,
 		IsOut:        true,
 		Date:         time.Now(),
 	}

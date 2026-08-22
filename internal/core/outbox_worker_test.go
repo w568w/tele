@@ -61,6 +61,22 @@ func TestWorker_SendsAQueuedEntryWithItsPersistedRandomID(t *testing.T) {
 	assert.Equal(t, outbox.RandomIDFor("r1"), c.lastRandomID())
 }
 
+func TestWorker_SendsToAnExplicitPeerWithoutALocalChat(t *testing.T) {
+	c := &stubClient{sentID: 77}
+	o, _ := newCmdOwner(t, c)
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+	ctx := runWorker(t, o)
+	peer := domain.Peer{ID: 2, Type: domain.PeerSuperGroup, AccessHash: 22}
+
+	require.NoError(t, o.Send(ctx, SendRequest{
+		Ref: "r1", ChatID: 2, Peer: peer, Text: "comment", ThreadRootID: 40,
+	}))
+
+	waitFor(t, "the comment was never sent", func() bool { return c.sendCalls() == 1 })
+	assert.Equal(t, peer, c.lastSentPeer())
+}
+
 func TestWorker_MarksATerminalKindFailedAndKeepsTheText(t *testing.T) {
 	c := &stubClient{err: &telerr.Error{Kind: telerr.Forbidden, Detail: "CHAT_WRITE_FORBIDDEN"}}
 	o, _ := newCmdOwner(t, c)

@@ -151,12 +151,10 @@ func (m RootModel) updateUIMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 		if after < 0 {
 			after = 0
 		}
-		m.chatWindow = project.ChatWindow{
-			ChatID: m.currentChatID,
-			Anchor: project.Anchor{Kind: project.AnchorMessage, MsgID: msg.MsgID},
-			Before: before,
-			After:  after,
-		}
+		m.chatWindow.ChatID = m.currentChatID
+		m.chatWindow.Anchor = project.Anchor{Kind: project.AnchorMessage, MsgID: msg.MsgID}
+		m.chatWindow.Before = before
+		m.chatWindow.After = after
 		m.chat.SetLoading(true)
 		m.owner.MoveWindow(m.chatSub, m.chatWindow)
 		return m, nil
@@ -183,6 +181,9 @@ func (m RootModel) updateUIMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 	case components.ReplyMsgRequest:
 		m.contextMenu = nil
 		return m, m.activateReply(msg.MsgID)
+
+	case components.OpenDiscussionRequest:
+		return m.openDiscussion(msg.MsgID, msg.DiscussionChatID)
 
 	case components.ForwardMsgRequest:
 		return m.openForwardPicker(msg.MsgID)

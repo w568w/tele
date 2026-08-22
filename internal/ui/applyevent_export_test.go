@@ -64,6 +64,7 @@ type testOwner struct {
 	sentMedia   []core.MediaSendRequest
 	retried     []string
 	discarded   []string
+	joined      []string
 	lastSendCtx context.Context
 	// searchResult and participants are what the queries answer with;
 	// lastSearchQuery records what was asked.
@@ -307,6 +308,11 @@ func (o *testOwner) DiscardOutbox(ref string) error {
 	return o.cmdErr
 }
 
+func (o *testOwner) JoinDiscussionAndRetry(_ context.Context, _ int64, ref string) error {
+	o.joined = append(o.joined, ref)
+	return o.cmdErr
+}
+
 // ownerDraft is one SaveDraft the UI issued, replacing what used to be recorded
 // on the mock tg.Client (#198).
 type ownerDraft struct {
@@ -430,6 +436,14 @@ func (o *testOwner) MarkRead(_ context.Context, chatID int64, maxID int) error {
 	}
 	o.state.ApplyReadInbox(chatID, maxID)
 	return nil
+}
+
+func (o *testOwner) MarkDiscussionRead(_ context.Context, _ domain.Peer, _, _ int) error {
+	return o.cmdErr
+}
+
+func (o *testOwner) OpenDiscussion(_ context.Context, _ int64, _ int, _ int64) (domain.Discussion, error) {
+	return domain.Discussion{}, o.cmdErr
 }
 
 func (o *testOwner) AddToFolder(_ context.Context, filterID int, chatID int64, add bool) error {

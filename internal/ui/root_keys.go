@@ -12,6 +12,9 @@ import (
 
 func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.statusBar.SetStatus("")
+	if m.joinPrompt != nil {
+		return m.handleJoinDiscussionPromptKey(msg)
+	}
 	// While the help modal is open it owns all keys.
 	if m.help != nil {
 		newHelp, open := m.help.Update(msg)
@@ -240,6 +243,9 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Esc in normal mode: close active chat and return to chatlist.
 	if action == keys.ActionNormal && m.focus == FocusChat {
+		if m.discussion != nil {
+			return m.closeDiscussion()
+		}
 		// Persist the draft of the chat being closed before tearing it down (#62).
 		draftFlush := m.flushCurrentDraftCmd()
 		m.chat.ClearPendingAction()
@@ -316,6 +322,9 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				openTargets := m.chat.SelectedMessageOpenTargets()
 				senderID := m.chat.SelectedMessageSenderID()
 				m.contextMenu = components.NewContextMenu(msgID, isOut, senderID, replyToMsgID, mediaKind, hasMedia, hasText, openTargets, m.keyMap)
+				if hasComments, repliesCount, discussionChatID := m.chat.SelectedMessageComments(); hasComments {
+					m.contextMenu.SetComments(repliesCount, discussionChatID)
+				}
 			}
 		}
 		return m, nil
@@ -387,11 +396,10 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if action == keys.ActionGoBottom && m.focus == FocusChat &&
 		m.chatWindow.Anchor.Kind == project.AnchorMessage && m.owner != nil && m.chatSub != 0 {
 		m.pendingJumpMsgID = 0
-		m.chatWindow = project.ChatWindow{
-			ChatID: m.currentChatID,
-			Anchor: project.Anchor{Kind: project.AnchorNewest},
-			Before: m.historyLimit,
-		}
+		m.chatWindow.ChatID = m.currentChatID
+		m.chatWindow.Anchor = project.Anchor{Kind: project.AnchorNewest}
+		m.chatWindow.Before = m.historyLimit
+		m.chatWindow.After = 0
 		m.chat.SetLoading(true)
 		m.owner.MoveWindow(m.chatSub, m.chatWindow)
 		return m, nil

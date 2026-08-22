@@ -63,6 +63,23 @@ func TestSend_RefusesAnUnknownChatAndPersistsNothing(t *testing.T) {
 	assert.Empty(t, q.All(), "a rejected submission must leave nothing behind")
 }
 
+func TestSend_QueuesAnExplicitPeerWithoutCreatingAChat(t *testing.T) {
+	o, st := newCmdOwner(t, &stubClient{})
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+	peer := domain.Peer{ID: 2, Type: domain.PeerSuperGroup, AccessHash: 22}
+
+	require.NoError(t, o.Send(context.Background(), SendRequest{
+		Ref: "r1", ChatID: 2, Peer: peer, Text: "comment", ThreadRootID: 40,
+	}))
+
+	entry, ok := q.Get("r1")
+	require.True(t, ok)
+	assert.Equal(t, peer, entry.Message.Peer)
+	_, exists := st.GetChat(2)
+	assert.False(t, exists)
+}
+
 func TestSend_WithoutAQueueIsAnInternalError(t *testing.T) {
 	o, _ := newCmdOwner(t, &stubClient{})
 
@@ -123,6 +140,52 @@ func TestRetryOutbox_AnUnknownRefIsNotFound(t *testing.T) {
 	o.SetOutbox(newOutboxStore(t))
 
 	assert.Equal(t, telerr.NotFound, telerr.Of(o.RetryOutbox("nope")))
+}
+
+func TestJoinDiscussionAndRetry_JoinsOnlyThenRequeuesTheFailedComment(t *testing.T) {
+	c := &stubClient{}
+	o, _ := newCmdOwner(t, c)
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+	require.NoError(t, o.Send(context.Background(), SendRequest{
+		Ref: "r1", ChatID: 2, Peer: domain.Peer{ID: 2, AccessHash: 22, Type: domain.PeerSuperGroup},
+		Text: "comment", ReplyToMsgID: 40, ThreadRootID: 40,
+	}))
+	entry, _ := q.Get("r1")
+	entry.State = domain.OutboxFailed
+	entry.ErrKind = telerr.Forbidden
+	entry.ErrReason = telerr.ReasonGuestSendForbidden
+	require.NoError(t, q.Update(entry))
+
+	require.NoError(t, o.JoinDiscussionAndRetry(context.Background(), 2, "r1"))
+
+	assert.Equal(t, domain.Peer{ID: 2, AccessHash: 22, Type: domain.PeerSuperGroup}, c.joinedPeer)
+	got, ok := q.Get("r1")
+	require.True(t, ok)
+	assert.Equal(t, domain.OutboxQueued, got.State)
+	assert.Empty(t, got.ErrReason)
+}
+
+func TestJoinDiscussionAndRetry_DoesNotRequeueWhenJoiningFails(t *testing.T) {
+	c := &stubClient{joinErr: &telerr.Error{Kind: telerr.Forbidden, Detail: "CHANNEL_PRIVATE"}}
+	o, _ := newCmdOwner(t, c)
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+	require.NoError(t, o.Send(context.Background(), SendRequest{
+		Ref: "r1", ChatID: 2, Peer: domain.Peer{ID: 2, Type: domain.PeerSuperGroup},
+		Text: "comment", ReplyToMsgID: 40, ThreadRootID: 40,
+	}))
+	entry, _ := q.Get("r1")
+	entry.State = domain.OutboxFailed
+	entry.ErrKind = telerr.Forbidden
+	entry.ErrReason = telerr.ReasonGuestSendForbidden
+	require.NoError(t, q.Update(entry))
+
+	err := o.JoinDiscussionAndRetry(context.Background(), 2, "r1")
+
+	assert.Equal(t, telerr.Forbidden, telerr.Of(err))
+	got, _ := q.Get("r1")
+	assert.Equal(t, domain.OutboxFailed, got.State)
 }
 
 func TestDiscardOutbox_RemovesTheEntry(t *testing.T) {

@@ -11,15 +11,23 @@ import (
 // updateNetworkMsg handles messages that involve async data loading (history, media, read state).
 func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case discussionOpenedMsg:
+		return m.applyDiscussionOpened(msg)
+
 	case screens.OpenChatMsg:
 		m.searchModel = nil
-		if msg.ChatID == m.currentChatID {
+		wasDiscussion := m.discussion != nil
+		m.discussion = nil
+		if msg.ChatID == m.currentChatID && !wasDiscussion {
 			result, cmd := m.focusPane(FocusChat)
 			return result.(RootModel), cmd
 		}
 		// Persist the chat we are leaving as a Telegram draft before switching
 		// (#62). Captured here while currentChatID still points at the old chat.
-		draftFlush := m.flushCurrentDraftCmd()
+		var draftFlush tea.Cmd
+		if !wasDiscussion {
+			draftFlush = m.flushCurrentDraftCmd()
+		}
 		m.currentChatID = msg.ChatID
 		m.stopGifAnim()
 		// Drop decoded GIF frames from the previous chat; they are large (up to

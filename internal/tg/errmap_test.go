@@ -36,6 +36,7 @@ func TestClassifyTgErr(t *testing.T) {
 		{"auth key unregistered", &tgerr.Error{Code: 401, Type: "AUTH_KEY_UNREGISTERED"}, telerr.Unauthorized, 0, ""},
 		{"auth key duplicated", &tgerr.Error{Code: 406, Type: "AUTH_KEY_DUPLICATED"}, telerr.Unauthorized, 0, ""},
 		{"forbidden by code", &tgerr.Error{Code: 403, Type: "CHAT_WRITE_FORBIDDEN"}, telerr.Forbidden, 0, ""},
+		{"guest send requires joining", &tgerr.Error{Code: 403, Type: "CHAT_GUEST_SEND_FORBIDDEN"}, telerr.Forbidden, 0, telerr.ReasonGuestSendForbidden},
 		{"peer id invalid", &tgerr.Error{Code: 400, Type: "PEER_ID_INVALID"}, telerr.PeerNotFound, 0, ""},
 		{"channel invalid", &tgerr.Error{Code: 400, Type: "CHANNEL_INVALID"}, telerr.PeerNotFound, 0, ""},
 		{"forwards restricted", &tgerr.Error{Code: 400, Type: "CHAT_FORWARDS_RESTRICTED"}, telerr.Forbidden, 0, ""},

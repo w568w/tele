@@ -1,6 +1,7 @@
 package components
 
 import (
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,6 +38,12 @@ type JumpToMsgRequest struct {
 // ReplyMsgRequest is emitted when the user activates reply for a message.
 type ReplyMsgRequest struct {
 	MsgID int
+}
+
+// OpenDiscussionRequest asks the root to resolve the comments behind a channel post.
+type OpenDiscussionRequest struct {
+	MsgID            int
+	DiscussionChatID int64
 }
 
 // ForwardMsgRequest is emitted when the user activates forward for a message.
@@ -106,6 +113,11 @@ type ContextMenu struct {
 	hasText      bool
 	openTargets  []OpenTarget
 	keyMap       keys.KeyMap
+
+	hasComments      bool
+	repliesCount     int
+	discussionChatID int64
+
 	// outboxRef addresses a queued send instead of a message. A message menu
 	// leaves it empty; an entry has no ID to be addressed by (#193).
 	outboxRef string
@@ -131,8 +143,17 @@ func NewContextMenu(msgID int, isOut bool, senderID int64, replyToMsgID int, med
 		keyMap:       km,
 		list:         NewListView(true),
 	}
-	cm.setItems(mainItems(isOut, senderID != 0, replyToMsgID != 0, mediaKind, hasMedia, hasText, openTargets))
+	cm.refreshItems()
 	return cm
+}
+
+func (cm *ContextMenu) SetComments(count int, chatID int64) {
+	cm.hasComments, cm.repliesCount, cm.discussionChatID = true, count, chatID
+	cm.refreshItems()
+}
+
+func (cm *ContextMenu) refreshItems() {
+	cm.setItems(mainItems(cm.isOut, cm.senderID != 0, cm.replyToMsgID != 0, cm.mediaKind, cm.hasMedia, cm.hasText, cm.openTargets, cm.hasComments, cm.repliesCount))
 }
 
 // NewOutboxContextMenu builds the menu for a queued send. Two items, because an
@@ -171,8 +192,15 @@ func (cm *ContextMenu) setItems(items []menuItem) {
 
 func (cm *ContextMenu) Cursor() int { return cm.list.Cursor() }
 
-func mainItems(isOut bool, hasSender bool, isReply bool, mediaKind domain.MediaKind, hasMedia bool, hasText bool, openTargets []OpenTarget) []menuItem {
+func mainItems(isOut bool, hasSender bool, isReply bool, mediaKind domain.MediaKind, hasMedia bool, hasText bool, openTargets []OpenTarget, hasComments bool, repliesCount int) []menuItem {
 	var items []menuItem
+	if hasComments {
+		label := "View comments"
+		if repliesCount > 0 {
+			label += " (" + strconv.Itoa(repliesCount) + ")"
+		}
+		items = append(items, menuItem{label: label, action: keys.ActionOpenDiscussion})
+	}
 	if isReply {
 		items = append(items, menuItem{label: "Jump to original", action: keys.ActionJumpToOriginal})
 	}
@@ -291,7 +319,7 @@ func (cm *ContextMenu) Update(msg tea.Msg) (*ContextMenu, tea.Cmd) {
 	case keys.ActionCancel:
 		if cm.state == stateDeleteSub {
 			cm.state = stateMain
-			cm.setItems(mainItems(cm.isOut, cm.senderID != 0, cm.replyToMsgID != 0, cm.mediaKind, cm.hasMedia, cm.hasText, cm.openTargets))
+			cm.refreshItems()
 			return cm, nil
 		}
 		return nil, func() tea.Msg { return CloseContextMenuMsg{} }
@@ -318,6 +346,9 @@ func (cm *ContextMenu) execute() (*ContextMenu, tea.Cmd) {
 		return cm.executeOutbox(action)
 	}
 	switch action {
+	case keys.ActionOpenDiscussion:
+		msgID, chatID := cm.msgID, cm.discussionChatID
+		return nil, func() tea.Msg { return OpenDiscussionRequest{MsgID: msgID, DiscussionChatID: chatID} }
 	case keys.ActionJumpToOriginal:
 		replyToMsgID := cm.replyToMsgID
 		return nil, func() tea.Msg { return JumpToMsgRequest{MsgID: replyToMsgID} }

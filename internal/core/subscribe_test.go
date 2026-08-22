@@ -23,11 +23,13 @@ import (
 // than it declared should fail loudly.
 type stubConn struct {
 	internaltg.Client
-	history  []domain.Message
-	messages map[int]domain.Message
-	windows  map[int][]domain.Message
-	calls    atomic.Int32
-	release  chan struct{}
+	history   []domain.Message
+	messages  map[int]domain.Message
+	windows   map[int][]domain.Message
+	calls     atomic.Int32
+	release   chan struct{}
+	replies   []domain.Message
+	replyPeer domain.Peer
 }
 
 func (s *stubConn) Connect(context.Context, *config.Config, *internaltg.AuthFlow, chan<- struct{}, func(int64, string)) error {
@@ -56,6 +58,12 @@ func (s *stubConn) GetHistoryWindow(_ context.Context, _ domain.Peer, anchorID, 
 		return []domain.Message{msg}, nil
 	}
 	return s.history, nil
+}
+
+func (s *stubConn) GetReplies(_ context.Context, peer domain.Peer, _, _, _ int) ([]domain.Message, error) {
+	s.calls.Add(1)
+	s.replyPeer = peer
+	return s.replies, nil
 }
 
 func (s *stubConn) RefreshMessage(_ context.Context, _ domain.Peer, id int) (domain.Message, error) {
@@ -95,6 +103,49 @@ func TestOwner_SubscribeDeliversInitialContents(t *testing.T) {
 	assert.Equal(t, project.ChatListReset, d.ChatList.Kind)
 	require.Len(t, d.ChatList.Rows, 1)
 	assert.Equal(t, "Ada", d.ChatList.Rows[0].Title)
+}
+
+func TestBackfill_RefreshesCommentMetadataOnCachedChannelPosts(t *testing.T) {
+	peer := domain.Peer{ID: 7, Type: domain.PeerChannel, AccessHash: 70}
+	fresh := domain.Message{
+		ID: 10, ChatID: 7, Text: "post", HasComments: true,
+		RepliesCount: 3, DiscussionChatID: 8,
+	}
+	c := &stubConn{messages: map[int]domain.Message{10: fresh}}
+	o, s := newOwnerWithClient(t, c)
+	s.Store().SetChat(domain.Chat{ID: 7, Peer: peer})
+	s.Store().SetMessages(7, []domain.Message{{ID: 10, ChatID: 7, Text: "post"}})
+	w := project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}}
+	id, _ := o.registry.Subscribe(w)
+
+	o.backfill(context.Background(), id, w)
+
+	msgs := s.Store().Messages(7)
+	require.Len(t, msgs, 1)
+	assert.True(t, msgs[0].HasComments)
+	assert.Equal(t, 3, msgs[0].RepliesCount)
+	assert.Equal(t, int64(8), msgs[0].DiscussionChatID)
+}
+
+func TestBackfill_ThreadUsesItsWindowPeerWithoutADialog(t *testing.T) {
+	peer := domain.Peer{ID: 8, Type: domain.PeerSuperGroup, AccessHash: 80}
+	c := &stubConn{replies: []domain.Message{
+		{ID: 40, ChatID: 8, ThreadRootID: 40},
+		{ID: 41, ChatID: 8, ReplyToMsgID: 40, ThreadRootID: 40},
+	}}
+	o, s := newOwnerWithClient(t, c)
+	s.Store().SetMessages(8, c.replies[:1])
+	w := project.ChatWindow{
+		ChatID: 8, ThreadRootID: 40, ThreadPeer: peer,
+		Anchor: project.Anchor{Kind: project.AnchorNewest}, Before: 2,
+	}
+
+	o.backfill(context.Background(), 1, w)
+
+	assert.Equal(t, peer, c.replyPeer)
+	assert.Len(t, s.Store().Messages(8), 2)
+	_, exists := s.Store().GetChat(8)
+	assert.False(t, exists)
 }
 
 func TestOwner_UnsubscribedClientGetsNothing(t *testing.T) {

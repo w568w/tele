@@ -65,6 +65,25 @@ func TestSendMedia_CaptionAndReplyGoOnTheFirstGroupOnly(t *testing.T) {
 	assert.Zero(t, entries[1].Media.ReplyToMsgID)
 }
 
+func TestSendMedia_ThreadAddressAppliesToEveryAlbumGroup(t *testing.T) {
+	o, _ := newCmdOwner(t, &stubClient{})
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+
+	require.NoError(t, o.SendMedia(context.Background(), MediaSendRequest{
+		Ref: "r1", ChatID: 1, ThreadRootID: 40,
+		Files: []MediaFile{
+			{Path: writeFile(t, "a.jpg", 3)},
+			{Path: writeFile(t, "b.pdf", 4)},
+		},
+	}))
+
+	entries := q.ForChat(1)
+	require.Len(t, entries, 2)
+	assert.Equal(t, 40, entries[0].Media.ThreadRootID)
+	assert.Equal(t, 40, entries[1].Media.ThreadRootID)
+}
+
 func TestSendMedia_RecordsNameAndSizeFromDisk(t *testing.T) {
 	o, _ := newCmdOwner(t, &stubClient{})
 	q := newOutboxStore(t)
@@ -111,6 +130,22 @@ func TestSendMedia_RefusesAnUnknownChat(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Empty(t, q.All())
+}
+
+func TestSendMedia_QueuesAnExplicitPeerWithoutALocalChat(t *testing.T) {
+	o, _ := newCmdOwner(t, &stubClient{})
+	q := newOutboxStore(t)
+	o.SetOutbox(q)
+	peer := domain.Peer{ID: 2, Type: domain.PeerSuperGroup, AccessHash: 22}
+
+	require.NoError(t, o.SendMedia(context.Background(), MediaSendRequest{
+		Ref: "r1", ChatID: 2, Peer: peer,
+		Files: []MediaFile{{Path: writeFile(t, "a.jpg", 3)}}, ThreadRootID: 40,
+	}))
+
+	entry := q.ForChat(2)[0]
+	assert.Equal(t, peer, entry.Media.Peer)
+	assert.Equal(t, 40, entry.Media.ThreadRootID)
 }
 
 func TestSendMedia_IsIdempotentPerRef(t *testing.T) {

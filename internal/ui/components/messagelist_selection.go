@@ -122,6 +122,13 @@ func (ml *MessageList) SelectedMessageReplyToMsgID() int {
 	return 0
 }
 
+func (ml *MessageList) SelectedMessageComments() (bool, int, int64) {
+	if msg := ml.computeSelectedMsg(); msg != nil {
+		return msg.HasComments, msg.RepliesCount, msg.DiscussionChatID
+	}
+	return false, 0, 0
+}
+
 func (ml *MessageList) SelectedMessagePhotoID() int64 {
 	if msg := ml.computeSelectedMsg(); msg != nil && msg.Photo != nil {
 		return msg.Photo.ID

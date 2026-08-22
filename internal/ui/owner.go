@@ -25,6 +25,7 @@ type Owner interface {
 	AddToFolder(ctx context.Context, filterID int, chatID int64, add bool) error
 	// MarkRead with maxID 0 reads the whole chat.
 	MarkRead(ctx context.Context, chatID int64, maxID int) error
+	MarkDiscussionRead(ctx context.Context, peer domain.Peer, rootMsgID, maxID int) error
 	// SetFocus reports which chat this client is showing, 0 for none. The owner
 	// needs it because a chat you are looking at must not interrupt you; the
 	// client must report leaving a chat as well as entering one, or the owner
@@ -52,10 +53,12 @@ type Owner interface {
 	SendMedia(ctx context.Context, req core.MediaSendRequest) error
 	RetryOutbox(ref string) error
 	DiscardOutbox(ref string) error
+	JoinDiscussionAndRetry(ctx context.Context, chatID int64, ref string) error
 
 	// Queries. One-off answers nobody subscribes to.
 	SearchContacts(ctx context.Context, q string, limit int) ([]domain.Chat, error)
 	GetParticipants(ctx context.Context, chatID int64) ([]domain.ChatMember, error)
+	OpenDiscussion(ctx context.Context, sourceChatID int64, msgID int, discussionChatID int64) (domain.Discussion, error)
 	// KnownUser answers from what the owner already holds, without a round
 	// trip, so a profile draws the moment it opens. GetUser completes it.
 	//

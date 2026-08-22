@@ -71,6 +71,7 @@ type ownerStub struct {
 	sentMedia []core.MediaSendRequest
 	retried   []string
 	discarded []string
+	joined    []string
 }
 
 func (o *ownerStub) SetFocus(chatID int64) { o.focus = append(o.focus, chatID) }
@@ -285,6 +286,11 @@ func (o *ownerStub) DiscardOutbox(ref string) error {
 	return o.err
 }
 
+func (o *ownerStub) JoinDiscussionAndRetry(_ context.Context, _ int64, ref string) error {
+	o.joined = append(o.joined, ref)
+	return o.err
+}
+
 func (o *ownerStub) Forward(_ context.Context, fromChatID int64, to domain.Peer, _ []int, _ string) error {
 	o.calls = append(o.calls, cmdCall{name: "Forward", chatID: fromChatID})
 	if o.err != nil {
@@ -379,6 +385,15 @@ func (o *ownerStub) MarkRead(_ context.Context, chatID int64, maxID int) error {
 	}
 	o.state.ApplyReadInbox(chatID, maxID)
 	return nil
+}
+
+func (o *ownerStub) MarkDiscussionRead(_ context.Context, peer domain.Peer, _, _ int) error {
+	o.calls = append(o.calls, cmdCall{name: "MarkDiscussionRead", chatID: peer.ID})
+	return o.err
+}
+
+func (o *ownerStub) OpenDiscussion(_ context.Context, _ int64, _ int, _ int64) (domain.Discussion, error) {
+	return domain.Discussion{}, o.err
 }
 
 func (o *ownerStub) AddToFolder(_ context.Context, filterID int, chatID int64, add bool) error {

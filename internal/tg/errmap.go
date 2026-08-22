@@ -98,6 +98,9 @@ func opName(in bin.Encoder) string {
 // one, and a wait for RateLimited. Codes decide first because they are stable;
 // types refine the 400s.
 func classifyTgErr(e *tgerr.Error) (telerr.Kind, telerr.Reason, time.Duration) {
+	if e.Type == "CHAT_GUEST_SEND_FORBIDDEN" {
+		return telerr.Forbidden, telerr.ReasonGuestSendForbidden, 0
+	}
 	switch {
 	case e.Code == 420:
 		// FLOOD_WAIT, FLOOD_PREMIUM_WAIT and SLOWMODE_WAIT all carry the wait

@@ -207,7 +207,7 @@ func (ml *MessageList) measureBubbleWithStatus(msg domain.Message, statusOverrid
 		innerW = tsW
 		actualW = innerW - 2
 	}
-	reactStr := buildReactStr(msg.Reactions)
+	reactStr := buildMessageMeta(msg)
 	reactW := lipgloss.Width(reactStr)
 	if innerW < reactW+tsW+1 {
 		innerW = reactW + tsW + 1
@@ -490,7 +490,7 @@ func (ml *MessageList) renderBareMedia(msg domain.Message, selected bool) []stri
 		editMark = theme.S().Timestamp.Render("edited · ")
 	}
 	tsStr := editMark + theme.S().Timestamp.Render(msg.Date.Format("15:04")) + statusStr
-	reactStr := strings.TrimSpace(buildReactStr(msg.Reactions))
+	reactStr := buildMessageMeta(msg)
 
 	// Block width: widest of the art, the meta line, and (in groups) the name.
 	blockW := cols

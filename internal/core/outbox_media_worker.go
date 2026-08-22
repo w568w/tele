@@ -17,7 +17,7 @@ import (
 // group, so it lands whole or not at all — a part that will not upload takes the
 // group with it rather than producing an album of unknown composition.
 func (o *Owner) attemptMedia(ctx context.Context, e domain.OutboxEntry) {
-	peer, err := o.peer(e.ChatID)
+	peer, err := o.outboxPeer(e)
 	if err != nil {
 		o.recordFailure(e, err)
 		return
@@ -134,6 +134,7 @@ func (o *Owner) sendGroup(ctx context.Context, e domain.OutboxEntry, peer domain
 			Peer: peer, Media: uploaded[0],
 			Caption: e.Media.Caption, Entities: e.Media.Entities,
 			ReplyToMsgID: e.Media.ReplyToMsgID,
+			ThreadRootID: e.Media.ThreadRootID,
 			RandomID:     mediaRandomID(e.Ref, 0),
 		})
 		if err != nil {
@@ -157,6 +158,7 @@ func (o *Owner) sendGroup(ctx context.Context, e domain.OutboxEntry, peer domain
 	return o.client.SendAlbum(ctx, internaltg.SendAlbumParams{
 		Peer: peer, Items: items,
 		ReplyToMsgID: e.Media.ReplyToMsgID,
+		ThreadRootID: e.Media.ThreadRootID,
 		RandomIDs:    randomIDs,
 	})
 }
@@ -201,6 +203,9 @@ func (o *Owner) recordSentMedia(e domain.OutboxEntry, peer domain.Peer, ids []in
 	// where the row goes — so the pending bubble and the album swap inside one
 	// delta instead of across two with a frame showing neither.
 	for _, m := range msgs {
+		if m.ThreadRootID == 0 {
+			m.ThreadRootID = e.Media.ThreadRootID
+		}
 		o.state.ApplyIncoming(m)
 	}
 

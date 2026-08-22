@@ -4,6 +4,8 @@
 // change kinds, so a change no window contains costs nothing.
 package project
 
+import "github.com/sorokin-vladimir/tele/internal/domain"
+
 // SubID identifies one live subscription.
 type SubID int
 
@@ -50,6 +52,12 @@ type ChatWindow struct {
 	Anchor Anchor
 	Before int
 	After  int
+	// ThreadRootID narrows a linked supergroup to one channel discussion.
+	ThreadRootID          int
+	ThreadPeer            domain.Peer
+	ThreadTitle           string
+	ThreadReadInboxMaxID  int
+	ThreadReadOutboxMaxID int
 }
 
 func (ChatWindow) isWindow() {}

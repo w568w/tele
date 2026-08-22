@@ -22,6 +22,7 @@ type Incoming struct {
 // Err carries the domain error kind from #191; the client decides how to say it.
 type Failure struct {
 	ChatID int64
+	Ref    string
 	Op     string
 	Err    error
 }

@@ -281,6 +281,14 @@ func convertMessage(raw tg.MessageClass, chatID int64) (domain.Message, bool) {
 	out.Media = classifyMedia(msg.Media)
 	if hdr, ok := msg.ReplyTo.(*tg.MessageReplyHeader); ok {
 		out.ReplyToMsgID = hdr.ReplyToMsgID
+		out.ThreadRootID = hdr.ReplyToTopID
+	}
+	if replies, ok := msg.GetReplies(); ok {
+		out.HasComments = replies.Comments
+		out.RepliesCount = replies.Replies
+		if discussionChatID, ok := replies.GetChannelID(); ok {
+			out.DiscussionChatID = discussionChatID
+		}
 	}
 	// EditHide is set when edit_date changes for a non-content reason (e.g. a
 	// reaction bump): Telegram tells clients to hide the "edited" label. Honor

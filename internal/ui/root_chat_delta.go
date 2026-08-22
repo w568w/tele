@@ -63,13 +63,16 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		c := d.Contents
 		m.chat.SetHeader(screens.ChatHeader{
 			ChatID:          c.ChatID,
+			DraftKey:        -int64(c.ThreadRootID),
 			Title:           c.Title,
 			IsUser:          c.IsUser,
 			IsGroup:         c.IsGroup,
 			Online:          c.Online,
 			ReadOutboxMaxID: c.ReadOutboxMaxID,
 		})
-		m.chat.SeedDraft(c.ChatID, c.Draft)
+		if c.ThreadRootID == 0 {
+			m.chat.SeedDraft(c.ChatID, c.Draft)
+		}
 		m.chat.SetInboxReadMaxID(c.ReadInboxMaxID)
 		m.chatMsgs = c.Messages
 		m.chat.SetMessages(m.chatMsgs)
@@ -113,6 +116,7 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		c := d.Contents
 		m.chat.SetHeader(screens.ChatHeader{
 			ChatID:          c.ChatID,
+			DraftKey:        -int64(c.ThreadRootID),
 			Title:           c.Title,
 			IsUser:          c.IsUser,
 			IsGroup:         c.IsGroup,
@@ -147,7 +151,7 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		// yank you out of it.
 		m.chat.SetMessagesKeepScroll(m.chatMsgs)
 		cmds := []tea.Cmd{m.markReadCmd(), m.pendingDownloadCmds([]domain.Message{d.Message})}
-		if m.focus == FocusChat && d.Message.Mentioned {
+		if m.discussion == nil && m.focus == FocusChat && d.Message.Mentioned {
 			cmds = append(cmds, m.readMentionsCmd(m.currentChatID))
 		}
 		return m, tea.Batch(cmds...)
@@ -211,6 +215,10 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 // at it. The count is per-chat state, so the message the reaction landed on need
 // not be in the window (#199).
 func (m *RootModel) readReactionsOnScreen(c project.ChatContents) tea.Cmd {
+	if c.ThreadRootID != 0 {
+		m.chatUnreadReactions = 0
+		return nil
+	}
 	m.chatUnreadReactions = c.UnreadReactions
 	if m.focus != FocusChat || c.UnreadReactions == 0 {
 		return nil
