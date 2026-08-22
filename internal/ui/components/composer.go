@@ -67,6 +67,10 @@ func NewComposer(width int) *Composer {
 	// Issue: https://github.com/sorokin-vladimir/tele/issues/9#issuecomment-4600787928
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "shift+enter"))
 	ta.KeyMap.Paste = key.NewBinding() // handled at root level via readClipboardCmd → tea.PasteMsg
+	ta.KeyMap.WordForward.SetKeys("alt+right", "ctrl+right", "alt+f")
+	ta.KeyMap.WordBackward.SetKeys("alt+left", "ctrl+left", "alt+b")
+	ta.KeyMap.DeleteWordBackward.SetKeys("alt+backspace", "ctrl+backspace", "ctrl+w")
+	ta.KeyMap.DeleteWordForward.SetKeys("alt+delete", "ctrl+delete", "alt+d")
 	// Telegram counts UTF-16 code units; the textarea's own guard counts display
 	// width (uniseg.StringWidth), which halves the budget for wide characters —
 	// CJK is width 2 but one code unit. The unit is not correctable, so the guard

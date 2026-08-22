@@ -643,6 +643,24 @@ func TestComposer_DeletionWorksWhileOverLimit(t *testing.T) {
 	assert.Equal(t, 1999, utf16Count(c.Value()), "backspace must work while over the limit")
 }
 
+func TestComposer_CtrlWordEditing(t *testing.T) {
+	c := components.NewComposer(60)
+	c.Focus()
+	c.SetValue("alpha beta")
+
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl})
+	assert.Equal(t, 6, c.Column())
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModCtrl})
+	assert.Equal(t, 10, c.Column())
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyBackspace, Mod: tea.ModCtrl})
+	assert.Equal(t, "alpha ", c.Value())
+
+	c.SetValue("alpha beta")
+	c.SetCursorForTest(0, 0)
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDelete, Mod: tea.ModCtrl})
+	assert.Equal(t, " beta", c.Value())
+}
+
 // A paste is content the user already has: truncating it would lose data, so it
 // is applied in full and the draft goes over the limit.
 func TestComposer_PasteAppliedInFullPastLimit(t *testing.T) {
