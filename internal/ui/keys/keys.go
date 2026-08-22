@@ -112,6 +112,7 @@ func DefaultKeyMap() KeyMap {
 			"O":      ActionOpenExternal,
 			"p":      ActionPlayVoice,
 			"f":      ActionForward,
+			"S":      ActionSaveToSaved,
 			"u":      ActionAttach,
 			"x":      ActionCancelUpload,
 			"s":      ActionDownloadFile,

@@ -336,6 +336,11 @@ func (o *testOwner) Forward(_ context.Context, fromChatID int64, to domain.Peer,
 	return nil
 }
 
+func (o *testOwner) SaveToSavedMessages(_ context.Context, fromChatID int64, msgID int) error {
+	o.forwardFrom, o.forwardIDs = fromChatID, []int{msgID}
+	return o.cmdErr
+}
+
 func (o *testOwner) SendReaction(_ context.Context, chatID int64, msgID int, emoji string) error {
 	msg, ok := o.messageByID(chatID, msgID)
 	if !ok {

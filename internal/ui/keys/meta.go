@@ -80,6 +80,7 @@ var defaultLabels = map[Action]Label{
 	ActionToggleSendAs:    {Short: "photo/file"},
 	ActionCancelUpload:    {Short: "drop file"},
 	ActionPasteImage:      {Short: "paste image", Long: "paste image from clipboard as photo"},
+	ActionSaveToSaved:     {Short: "save", Long: "save to Saved Messages"},
 	// Chat-menu actions.
 	ActionMarkRead:    {Short: "read", Long: "mark read"},
 	ActionMarkUnread:  {Short: "unread", Long: "mark unread"},

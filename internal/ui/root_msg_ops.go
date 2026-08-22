@@ -484,6 +484,17 @@ func (m RootModel) handleForwardDone(msg forwardDoneMsg) (RootModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m RootModel) saveSelectedToSavedMessages() (RootModel, tea.Cmd) {
+	msgID := m.chat.SelectedMessageID()
+	if m.owner == nil || msgID == 0 {
+		return m, nil
+	}
+	ctx, owner, from := m.ctx, m.owner, m.currentChatID
+	return m, func() tea.Msg {
+		return forwardDoneMsg{toTitle: "Saved Messages", err: owner.SaveToSavedMessages(ctx, from, msgID)}
+	}
+}
+
 // activateReply sets reply state for msgID, switches to insert mode, and returns the FocusComposer cmd.
 // Returns nil if msgID is zero.
 func (m *RootModel) activateReply(msgID int) tea.Cmd {

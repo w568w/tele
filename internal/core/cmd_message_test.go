@@ -278,6 +278,17 @@ func TestForward_SendsToTheGivenTarget(t *testing.T) {
 	assert.Equal(t, []int{5}, c.forwardedIDs)
 }
 
+func TestSaveToSavedMessages_ForwardsToAuthenticatedAccount(t *testing.T) {
+	c := &stubClient{}
+	o, _ := newCmdOwner(t, c)
+	o.selfID.Store(42)
+
+	require.NoError(t, o.SaveToSavedMessages(context.Background(), 1, 5))
+
+	assert.Equal(t, int64(42), c.forwardedTo)
+	assert.Equal(t, []int{5}, c.forwardedIDs)
+}
+
 // A search hit with no dialog is a valid target: the owner holds no chat for it,
 // which is why the target is a peer rather than a chat ID.
 func TestForward_TargetWithoutADialogStillWorks(t *testing.T) {

@@ -896,6 +896,21 @@ func TestRoot_ForwardKey_OpensPicker(t *testing.T) {
 	assert.True(t, m.SearchActive(), "forward key should open the chat picker")
 }
 
+func TestRoot_UppercaseS_SavesSelectedMessage(t *testing.T) {
+	m, st := newRootWithOpenChat(t)
+	st.AppendMessage(domain.Message{ID: 10, ChatID: 1, Text: "hello", Date: time.Now()})
+	newM, _ := applyHistory(t, m, st, 1)
+	m = newM.(ui.RootModel)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	cmd()
+
+	o := ownerOf(t, m)
+	assert.Equal(t, int64(1), o.forwardFrom)
+	assert.Equal(t, []int{10}, o.forwardIDs)
+}
+
 func TestRoot_ForwardToChat_AsksTheOwner(t *testing.T) {
 	m, _ := newRootWithOpenChat(t)
 	target := domain.Peer{ID: 999, Type: domain.PeerUser, AccessHash: 7}

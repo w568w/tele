@@ -588,6 +588,8 @@ func peerToInput(p domain.Peer) tg.InputPeerClass {
 		return &tg.InputPeerChat{ChatID: p.ID}
 	case domain.PeerChannel, domain.PeerSuperGroup:
 		return &tg.InputPeerChannel{ChannelID: p.ID, AccessHash: p.AccessHash}
+	case domain.PeerSelf:
+		return &tg.InputPeerSelf{}
 	default:
 		return &tg.InputPeerEmpty{}
 	}

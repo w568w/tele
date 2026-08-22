@@ -16,6 +16,7 @@ const (
 	PeerGroup
 	PeerChannel
 	PeerSuperGroup
+	PeerSelf
 )
 
 type Peer struct {

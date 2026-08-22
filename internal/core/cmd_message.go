@@ -68,6 +68,15 @@ func (o *Owner) Forward(ctx context.Context, fromChatID int64, to domain.Peer, m
 	return nil
 }
 
+// SaveToSavedMessages forwards one message to the authenticated account's self dialog.
+func (o *Owner) SaveToSavedMessages(ctx context.Context, fromChatID int64, msgID int) error {
+	selfID := o.selfID.Load()
+	if selfID == 0 {
+		return &telerr.Error{Kind: telerr.PeerNotFound}
+	}
+	return o.Forward(ctx, fromChatID, domain.Peer{ID: selfID, Type: domain.PeerSelf}, []int{msgID}, "")
+}
+
 // bumpForwardTarget gives the target chat a last-message preview built from the
 // forwarded source message, so it surfaces in the list at once. A target the
 // owner does not hold is a no-op inside BumpChatLastMessage, which is correct:

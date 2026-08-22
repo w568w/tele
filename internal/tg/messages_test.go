@@ -82,6 +82,7 @@ func TestPeerToInput_AllTypes(t *testing.T) {
 		{domain.Peer{ID: 1, Type: domain.PeerUser, AccessHash: 10}, "*tg.InputPeerUser"},
 		{domain.Peer{ID: 2, Type: domain.PeerGroup}, "*tg.InputPeerChat"},
 		{domain.Peer{ID: 3, Type: domain.PeerChannel, AccessHash: 20}, "*tg.InputPeerChannel"},
+		{domain.Peer{ID: 4, Type: domain.PeerSelf}, "*tg.InputPeerSelf"},
 		{domain.Peer{Type: domain.PeerType(99)}, "*tg.InputPeerEmpty"},
 	}
 
@@ -103,6 +104,9 @@ func TestPeerToInput_AllTypes(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, tc.peer.ID, v.ChannelID)
 			assert.Equal(t, tc.peer.AccessHash, v.AccessHash)
+		case "*tg.InputPeerSelf":
+			_, ok := inp.(*tg.InputPeerSelf)
+			require.True(t, ok)
 		case "*tg.InputPeerEmpty":
 			_, ok := inp.(*tg.InputPeerEmpty)
 			require.True(t, ok)

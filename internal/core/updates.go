@@ -15,6 +15,7 @@ import (
 // in its own goroutine; the update loop is started separately by RunUpdates.
 func (o *Owner) Start(ctx context.Context) error {
 	return o.client.Connect(ctx, o.Config(), o.authFlow, o.readyCh, func(userID int64, username string) {
+		o.selfID.Store(userID)
 		o.state.Store().ClearForNewAccount(userID)
 		o.onAuth(userID, username)
 	})
@@ -39,6 +40,11 @@ func (o *Owner) RunUpdates(ctx context.Context) {
 // decision, one clock, two sinks: splitting it in two is how the OS banner and
 // the in-app toast used to drift apart (#192).
 func (o *Owner) handleEvent(evt store.Event) {
+	// Telegram may report a forward into Saved Messages as inbound. A message
+	// in the authenticated account's self chat is necessarily ours.
+	if evt.Kind == store.EventNewMessage && evt.Message.ChatID == o.selfID.Load() {
+		evt.Message.IsOut = true
+	}
 	// Applying commits, and the owner's commit listener publishes the resulting
 	// deltas. Nothing is forwarded from here.
 	state.Apply(o.state, evt)

@@ -55,6 +55,7 @@ type Owner struct {
 	registry      *project.Registry
 	readyCh       chan struct{}
 	onAuthFn      func(userID int64, username string)
+	selfID        atomic.Int64
 
 	// ctx bounds the owner's background work (history backfill). It is stored
 	// rather than passed because that work is started by a subscription, which

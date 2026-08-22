@@ -53,7 +53,7 @@ var actionDisplayOrder = []keys.Action{
 	keys.ActionGoTop, keys.ActionGoBottom, keys.ActionScrollHalfUp, keys.ActionScrollHalfDown,
 	keys.ActionInsert, keys.ActionNormal, keys.ActionConfirm,
 	keys.ActionSearch, keys.ActionOpenContextMenu,
-	keys.ActionReply, keys.ActionReact, keys.ActionEdit, keys.ActionForward,
+	keys.ActionReply, keys.ActionReact, keys.ActionEdit, keys.ActionForward, keys.ActionSaveToSaved,
 	keys.ActionCopyMessage, keys.ActionOpenInViewer, keys.ActionOpenExternal,
 	keys.ActionPlayVoice, keys.ActionDownloadFile, keys.ActionJumpToOriginal,
 	keys.ActionMarkRead, keys.ActionMarkUnread, keys.ActionMute, keys.ActionUnmute,

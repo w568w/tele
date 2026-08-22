@@ -301,6 +301,11 @@ func (o *ownerStub) Forward(_ context.Context, fromChatID int64, to domain.Peer,
 	return nil
 }
 
+func (o *ownerStub) SaveToSavedMessages(_ context.Context, fromChatID int64, msgID int) error {
+	o.calls = append(o.calls, cmdCall{name: "SaveToSavedMessages", chatID: fromChatID})
+	return o.err
+}
+
 func (o *ownerStub) SendReaction(_ context.Context, chatID int64, msgID int, emoji string) error {
 	o.calls = append(o.calls, cmdCall{name: "SendReaction", chatID: chatID})
 	if o.err != nil {

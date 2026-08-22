@@ -57,6 +57,8 @@ func TestKeyMap_DownloadFile_BoundInChatAndMenu(t *testing.T) {
 	km := keys.DefaultKeyMap()
 	assert.Equal(t, keys.ActionDownloadFile, km.Resolve(keys.ContextChat, "s"))
 	assert.Equal(t, keys.ActionDownloadFile, km.Resolve(keys.ContextContextMenu, "s"))
+	assert.Equal(t, keys.ActionSaveToSaved, km.Resolve(keys.ContextChat, "S"))
+	assert.Equal(t, keys.ActionSaveToSaved, km.Resolve(keys.ContextChat, "Ы"))
 }
 
 func TestKeyMap_DownloadFile_RussianLayout(t *testing.T) {

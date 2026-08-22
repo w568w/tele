@@ -39,6 +39,7 @@ type Owner interface {
 	// Forward names its target by peer: it may be a search hit the owner holds
 	// no chat for.
 	Forward(ctx context.Context, fromChatID int64, to domain.Peer, msgIDs []int, comment string) error
+	SaveToSavedMessages(ctx context.Context, fromChatID int64, msgID int) error
 	SetTyping(ctx context.Context, chatID int64, action domain.TypingAction) error
 	SaveDraft(ctx context.Context, chatID int64, text string) error
 
