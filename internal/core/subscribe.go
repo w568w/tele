@@ -12,7 +12,7 @@ var _ project.Reader = projectionReader{}
 
 // Deltas is the stream every attached client consumes. Raw state changes do not
 // reach a client: a client sees only the projections it subscribed to.
-func (o *Owner) Deltas() <-chan project.Delta { return o.deltas }
+func (o *Owner) Deltas() <-chan project.Delta { return o.deltas.out }
 
 // Subscribe registers a window. The subscription's first delta carries its
 // current contents, which is what makes a resubscribe a full resync.
@@ -23,8 +23,10 @@ func (o *Owner) Subscribe(w project.Window) project.SubID {
 	if cw, ok := w.(project.ChatWindow); ok {
 		o.state.Store().LoadMessages(cw.ChatID)
 	}
+	o.projectionMu.Lock()
 	id, deltas := o.registry.Subscribe(w)
 	o.publish(deltas)
+	o.projectionMu.Unlock()
 	o.maybeBackfill(id, w)
 	return id
 }
@@ -39,7 +41,9 @@ func (o *Owner) MoveWindow(id project.SubID, w project.Window) {
 	o.fetchMu.Lock()
 	delete(o.desiredAnchors, id)
 	delete(o.pendingAnchors, id)
+	o.projectionMu.Lock()
 	o.publish(o.registry.MoveWindow(id, w))
+	o.projectionMu.Unlock()
 	o.fetchMu.Unlock()
 	o.maybeBackfill(id, w)
 }
@@ -48,7 +52,9 @@ func (o *Owner) Unsubscribe(id project.SubID) {
 	o.fetchMu.Lock()
 	delete(o.desiredAnchors, id)
 	delete(o.pendingAnchors, id)
+	o.projectionMu.Lock()
 	o.registry.Unsubscribe(id)
+	o.projectionMu.Unlock()
 	o.fetchMu.Unlock()
 }
 
@@ -57,7 +63,11 @@ func (o *Owner) Unsubscribe(id project.SubID) {
 // TRANSITIONAL (#193, #195, #196): media still writes to the store directly and
 // asks for a rebuild. Commands no longer do — they mutate through state, whose
 // commit publishes. The forward preview bump is the one caller inside the owner.
-func (o *Owner) Refresh() { o.publish(o.registry.Refresh()) }
+func (o *Owner) Refresh() {
+	o.projectionMu.Lock()
+	o.publish(o.registry.Refresh())
+	o.projectionMu.Unlock()
+}
 
 // maybeBackfill fetches from Telegram when a chat window asked for more history
 // than the store holds, so a client never has to know where data comes from.
@@ -68,9 +78,11 @@ func (o *Owner) maybeBackfill(id project.SubID, w project.Window) {
 	}
 	contents := project.BuildChat(o.reader(), cw)
 	chat, _ := o.state.Store().GetChat(cw.ChatID)
+	needsUnread := cw.ThreadRootID == 0 && cw.Anchor.Kind == project.AnchorFirstUnread &&
+		unreadHistoryIncomplete(o.state.Store().Messages(cw.ChatID), chat)
 	needsChannelMetadata := cw.ThreadRootID == 0 && chat.Peer.IsChannel() && len(contents.Messages) > 0
 	_, _, needsGapRepair := recoverableHistoryGap(contents.Messages, chat.Peer, o.Config().UI.HistoryLimit)
-	if !needsBackfill(contents, cw) && !needsGapRepair && !needsReplyPreviews(contents.Messages) && !needsChannelMetadata {
+	if !needsBackfill(contents, cw) && !needsUnread && !needsGapRepair && !needsReplyPreviews(contents.Messages) && !needsChannelMetadata {
 		return
 	}
 	go o.backfill(o.ctx, id, cw)
@@ -103,18 +115,14 @@ func (o *Owner) publishChange(chg state.Change) {
 			go o.hydrateIncomingReply(chg.Message)
 		}
 	}
+	o.projectionMu.Lock()
 	o.publish(o.registry.Refresh())
+	o.projectionMu.Unlock()
 }
 
-// publish drops deltas rather than blocking when a client is not draining:
-// backpressure must never stall the owner's update loop. A dropped delta costs a
-// stale window until the next change, and a resubscribe resyncs it.
+// publish preserves every projection delta without blocking the state writer.
+// Registry diffs are stateful: dropping one would leave the client stale because
+// the registry already recorded it as delivered.
 func (o *Owner) publish(ds []project.Delta) {
-	for _, d := range ds {
-		select {
-		case o.deltas <- d:
-		default:
-			o.log.Warn("projection delta dropped: client is not draining")
-		}
-	}
+	o.deltas.enqueue(ds)
 }

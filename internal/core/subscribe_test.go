@@ -315,7 +315,7 @@ func TestOwner_MessageAnchorLoadsNewerWithoutCrossingAStoredGap(t *testing.T) {
 	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
 	s.Store().SetMessages(7, []domain.Message{{ID: 100, ChatID: 7, Date: time.Unix(100, 0)}})
 	id := o.Subscribe(project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}})
-	for len(o.deltas) > 0 {
+	for len(o.Deltas()) > 0 {
 		<-o.Deltas()
 	}
 
@@ -357,7 +357,7 @@ func TestOwner_ReturnToNewestSupersedesAnInFlightMessageAnchor(t *testing.T) {
 	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
 	s.Store().SetMessages(7, []domain.Message{{ID: 100, ChatID: 7, Date: time.Unix(100, 0)}})
 	id := o.Subscribe(project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}})
-	for len(o.deltas) > 0 {
+	for len(o.Deltas()) > 0 {
 		<-o.Deltas()
 	}
 
@@ -382,6 +382,23 @@ func msgIDs(msgs []domain.Message) []int {
 		ids[i] = msg.ID
 	}
 	return ids
+}
+
+func TestOwner_ProjectionBurstIsDeliveredWithoutLoss(t *testing.T) {
+	o, _, _ := newTestOwner(t)
+	const count = 300
+	deltas := make([]project.Delta, count)
+	for i := range deltas {
+		deltas[i].Sub = project.SubID(i + 1)
+	}
+
+	o.publish(deltas)
+
+	for i := range deltas {
+		d, ok := recvDelta(t, o.Deltas())
+		require.True(t, ok)
+		assert.Equal(t, project.SubID(i+1), d.Sub)
+	}
 }
 
 func testMessages(ids ...int) []domain.Message {

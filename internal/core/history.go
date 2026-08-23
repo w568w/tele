@@ -67,10 +67,10 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 	historyChanged := false
 	offsetID := 0
 	gapLowerID, gapUpperID, fillGap := recoverableHistoryGap(contents.Messages, chat.Peer, o.Config().UI.HistoryLimit)
+	fillUnread := w.ThreadRootID == 0 && w.Anchor.Kind == project.AnchorFirstUnread &&
+		unreadHistoryIncomplete(existing, chat)
 
-	if needsBackfill(contents, w) || fillGap {
-		fillUnread := !fillGap && w.ThreadRootID == 0 && w.Anchor.Kind == project.AnchorFirstUnread &&
-			unreadHistoryIncomplete(existing, chat)
+	if needsBackfill(contents, w) || fillGap || fillUnread {
 		var fetched []domain.Message
 		var err error
 		switch {
@@ -356,7 +356,9 @@ func (o *Owner) publishAnchoredWindow(id project.SubID, w project.ChatWindow) {
 	o.fetchMu.Lock()
 	desired, ok := o.desiredAnchors[id]
 	if ok && desired.ChatID == w.ChatID && desired.Anchor == w.Anchor {
+		o.projectionMu.Lock()
 		o.publish(o.registry.MoveWindow(id, w))
+		o.projectionMu.Unlock()
 	}
 	o.fetchMu.Unlock()
 }

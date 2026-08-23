@@ -44,7 +44,7 @@ type Owner struct {
 	authFlow *internaltg.AuthFlow
 
 	events   <-chan store.Event
-	deltas   chan project.Delta
+	deltas   *deltaQueue
 	incoming chan Incoming
 	failures chan Failure
 	typing   chan Typing
@@ -53,6 +53,7 @@ type Owner struct {
 	// renders rather than judges (#192).
 	notifications chan Notification
 	registry      *project.Registry
+	projectionMu  sync.Mutex
 	readyCh       chan struct{}
 	onAuthFn      func(userID int64, username string)
 	selfID        atomic.Int64
@@ -106,7 +107,7 @@ func New(cfg *config.Config, log *zap.Logger, st *state.State, client Connection
 		client:         client,
 		notifier:       n,
 		authFlow:       internaltg.NewAuthFlow(),
-		deltas:         make(chan project.Delta, 256),
+		deltas:         newDeltaQueue(),
 		incoming:       make(chan Incoming, 32),
 		failures:       make(chan Failure, 32),
 		typing:         make(chan Typing, 32),
@@ -137,7 +138,10 @@ func New(cfg *config.Config, log *zap.Logger, st *state.State, client Connection
 }
 
 // SetContext bounds the owner's background work. Call before Start.
-func (o *Owner) SetContext(ctx context.Context) { o.ctx = ctx }
+func (o *Owner) SetContext(ctx context.Context) {
+	o.ctx = ctx
+	o.deltas.stopWith(ctx)
+}
 
 // Config is the config the owner is running on. Read it where it is used rather
 // than copying a value out of it, so that a setting follows a reload without

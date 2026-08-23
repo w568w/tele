@@ -174,12 +174,11 @@ func (s *State) ApplyReplyPreview(chatID int64, msgID int, preview domain.ReplyP
 	return Change{}, false
 }
 
-// ApplyHistory replaces a chat's stored messages with a fetched page. The
-// caller merges the page with what is already held (see core.MergeOlder); state
-// stores what it is given and publishes one change, so the chat:<id> projection
-// rebuilds through the same path as every other change.
+// ApplyHistory merges a fetched history snapshot into the stored messages. The
+// store performs the merge atomically so a live arrival during the fetch cannot
+// be erased by the older snapshot.
 func (s *State) ApplyHistory(chatID int64, msgs []domain.Message) (Change, bool) {
-	s.st.SetMessages(chatID, msgs)
+	s.st.MergeMessages(chatID, msgs)
 	c := Change{Kind: ChangeHistory, ChatID: chatID}
 	s.commit(c)
 	return c, true

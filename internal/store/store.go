@@ -12,6 +12,7 @@ type Store interface {
 	Chats() []domain.Chat
 	Messages(chatID int64) []domain.Message
 	SetMessages(chatID int64, msgs []domain.Message)
+	MergeMessages(chatID int64, msgs []domain.Message)
 	// LoadMessages loads a chat's persisted message tail into memory on first
 	// open (idempotent per chat). See issue #139.
 	LoadMessages(chatID int64)

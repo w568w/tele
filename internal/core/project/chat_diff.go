@@ -91,12 +91,12 @@ func headerChanged(prev, next ChatContents) bool {
 
 func diffWindow(prev, next ChatContents) []ChatDelta {
 	prevIDs, nextIDs := msgIDs(prev.Messages), msgIDs(next.Messages)
+	if prev.AnchorMsgID != next.AnchorMsgID {
+		return []ChatDelta{{Kind: ChatReset, Contents: next}}
+	}
 
 	switch {
 	case equalInts(prevIDs, nextIDs):
-		if prev.AnchorMsgID != next.AnchorMsgID {
-			return []ChatDelta{{Kind: ChatReset, Contents: next}}
-		}
 		var out []ChatDelta
 		for i, m := range next.Messages {
 			if !sameMessage(prev.Messages[i], m) {

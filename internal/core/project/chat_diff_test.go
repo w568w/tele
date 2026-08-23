@@ -207,15 +207,15 @@ func TestDiffChat_SwitchingChatIsAReset(t *testing.T) {
 func TestDiffChat_AnchorMoveIsAReset(t *testing.T) {
 	all := msgs(10)
 	prev := chatContents(all[7:])
-	next := chatContents(all[2:5])
-	next.AnchorMsgID = 4
+	next := chatContents(all[8:])
+	next.AnchorMsgID = 9
 	next.HasOlder, next.HasNewer = true, true
 
 	got := project.DiffChat(prev, next)
 
 	require.NotEmpty(t, got)
 	assert.Equal(t, project.ChatReset, got[0].Kind,
-		"a jump to a quoted message replaces the window, it does not extend it")
+		"an anchor move replaces the window even when its IDs look like a removal")
 }
 
 func TestDiffChat_AnchorMoveWithinTheSameWindowIsAReset(t *testing.T) {

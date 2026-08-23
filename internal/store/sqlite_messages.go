@@ -58,6 +58,27 @@ func (s *SQLiteStore) SetMessages(chatID int64, msgs []domain.Message) {
 	}
 }
 
+// MergeMessages installs fetched history without discarding concurrent live
+// arrivals. The fetched copy wins collisions because it may carry hydrated data.
+func (s *SQLiteStore) MergeMessages(chatID int64, msgs []domain.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	merged := mergeMessagesByID(s.messages[chatID], msgs)
+	s.messages[chatID] = merged
+	if s.msgFloor == nil {
+		s.msgFloor = make(map[int64]int)
+	}
+	s.msgFloor[chatID] = len(merged)
+	if chat, ok := s.chats[chatID]; ok && sharedPtsBox(chat.Peer) {
+		for _, m := range merged {
+			s.msgChat[m.ID] = chatID
+		}
+	}
+	for _, m := range msgs {
+		s.markMsgDirtyLocked(chatID, m.ID)
+	}
+}
+
 // markMsgDirtyLocked queues an upsert of (chatID, msgID) for the next flush.
 // Optimistic sentinel messages (negative ids) are session-only and never
 // persisted. Caller holds the lock.

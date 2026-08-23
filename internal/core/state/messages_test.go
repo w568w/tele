@@ -208,17 +208,23 @@ func TestApplyHistory_StoresTheWindowAndPublishesOneChange(t *testing.T) {
 	assert.Len(t, seen, 1)
 }
 
-func TestApplyHistory_ReplacesTheStoredMessages(t *testing.T) {
+func TestApplyHistory_PreservesMessageThatArrivedDuringFetch(t *testing.T) {
 	s, st := newState(t)
 	st.SetChat(domain.Chat{ID: 1})
-	s.ApplyHistory(1, []domain.Message{{ID: 5, ChatID: 1, Date: time.Unix(5, 0)}})
+	st.SetMessages(1, []domain.Message{{ID: 1, ChatID: 1, Date: time.Unix(1, 0)}})
 
+	// The history result was built from the old snapshot, then message 3 arrived
+	// before it was committed.
+	st.AppendMessage(domain.Message{ID: 3, ChatID: 1, Text: "live", Date: time.Unix(3, 0)})
 	s.ApplyHistory(1, []domain.Message{
-		{ID: 4, ChatID: 1, Date: time.Unix(4, 0)},
-		{ID: 5, ChatID: 1, Date: time.Unix(5, 0)},
+		{ID: 1, ChatID: 1, Date: time.Unix(1, 0)},
+		{ID: 2, ChatID: 1, Text: "fetched", Date: time.Unix(2, 0)},
 	})
 
-	assert.Len(t, st.Messages(1), 2, "the caller merges; state stores what it is given")
+	got := st.Messages(1)
+	require.Len(t, got, 3)
+	assert.Equal(t, []int{1, 2, 3}, []int{got[0].ID, got[1].ID, got[2].ID})
+	assert.Equal(t, "live", got[2].Text)
 }
 
 // A refreshed file reference is not an edit: it changes how the media is

@@ -36,8 +36,7 @@ func (s *State) Store() store.Store { return s.st }
 // the update loop, a history backfill — and a channel would either need a
 // drainer running before the first mutation or would block the mutator when the
 // buffer filled. A callback has neither failure mode, and the work behind it
-// (rebuild the subscribed windows, drop into a buffered delta channel) never
-// blocks.
+// rebuilds the subscribed windows and enqueues their deltas without blocking.
 func (s *State) OnChange(fn func(Change)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
