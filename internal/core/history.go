@@ -66,9 +66,22 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 	candidates := contents.Messages
 	historyChanged := false
 	offsetID := 0
+	gapLowerID, gapUpperID, fillGap := recoverableHistoryGap(contents.Messages, chat.Peer, o.Config().UI.HistoryLimit)
 
-	if needsBackfill(contents, w) {
-		fetched, offset, err := o.fetchHistoryPage(ctx, peer, w, existing)
+	if needsBackfill(contents, w) || fillGap {
+		fillUnread := !fillGap && w.ThreadRootID == 0 && w.Anchor.Kind == project.AnchorFirstUnread &&
+			unreadHistoryIncomplete(existing, chat)
+		var fetched []domain.Message
+		var err error
+		switch {
+		case fillGap:
+			offsetID = gapUpperID
+			fetched, err = o.fetchHistoryUntil(ctx, peer, gapUpperID, gapLowerID, nil)
+		case fillUnread:
+			fetched, err = o.fetchUnreadHistory(ctx, peer, chat, existing)
+		default:
+			fetched, offsetID, err = o.fetchHistoryPage(ctx, peer, w, existing)
+		}
 		if err != nil {
 			o.log.Warn("history backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
 			// The client asked for a window it cannot fill itself, so it has to be
@@ -76,8 +89,7 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 			o.publishFailure(Failure{ChatID: w.ChatID, Op: "load history", Err: err})
 			return
 		}
-		offsetID = offset
-		if w.ThreadRootID != 0 {
+		if w.ThreadRootID != 0 || fillUnread || fillGap {
 			merged = mergeHistoryRanges(fetched, existing)
 		} else {
 			merged = MergeOlder(fetched, existing)
@@ -148,6 +160,61 @@ func (o *Owner) fetchHistoryPage(ctx context.Context, peer domain.Peer, w projec
 	}
 	fetched, err := o.client.GetHistory(ctx, peer, offsetID, o.Config().UI.HistoryLimit)
 	return fetched, offsetID, err
+}
+
+func (o *Owner) fetchUnreadHistory(ctx context.Context, peer domain.Peer, chat domain.Chat, existing []domain.Message) ([]domain.Message, error) {
+	return o.fetchHistoryUntil(ctx, peer, 0, chat.ReadInboxMaxID, func(fetched []domain.Message) bool {
+		return !unreadHistoryIncomplete(mergeHistoryRanges(fetched, existing), chat)
+	})
+}
+
+func (o *Owner) fetchHistoryUntil(ctx context.Context, peer domain.Peer, offsetID, stopID int, complete func([]domain.Message) bool) ([]domain.Message, error) {
+	limit := o.Config().UI.HistoryLimit
+	var fetched []domain.Message
+	for {
+		page, err := o.client.GetHistory(ctx, peer, offsetID, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		fetched = mergeHistoryRanges(page, fetched)
+		oldestID := page[0].ID
+		if oldestID <= stopID || oldestID == offsetID || complete != nil && complete(fetched) {
+			break
+		}
+		offsetID = oldestID
+	}
+	return fetched, nil
+}
+
+// Only channels and supergroups have conversation-local message IDs; a gap in a
+// private or basic-group timeline says nothing is missing.
+func recoverableHistoryGap(msgs []domain.Message, peer domain.Peer, minSize int) (lowerID, upperID int, ok bool) {
+	if (!peer.IsChannel() && !peer.IsSuperGroup()) || minSize <= 0 {
+		return 0, 0, false
+	}
+	for i := len(msgs) - 1; i > 0; i-- {
+		lower, upper := msgs[i-1].ID, msgs[i].ID
+		if upper-lower-1 >= minSize {
+			return lower, upper, true
+		}
+	}
+	return 0, 0, false
+}
+
+func unreadHistoryIncomplete(msgs []domain.Message, chat domain.Chat) bool {
+	if chat.UnreadCount == 0 {
+		return false
+	}
+	storedUnread := 0
+	for _, msg := range msgs {
+		if !msg.IsOut && msg.ID > chat.ReadInboxMaxID {
+			storedUnread++
+		}
+	}
+	return storedUnread < chat.UnreadCount
 }
 
 func (o *Owner) fetchAnchorWindow(ctx context.Context, peer domain.Peer, w project.ChatWindow) ([]domain.Message, error) {

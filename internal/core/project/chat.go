@@ -154,14 +154,23 @@ func resolveAnchor(all []domain.Message, chat domain.Chat, a Anchor) (int, int) 
 			}
 		}
 		if chat.UnreadCount > 0 {
+			storedUnread := 0
+			for _, m := range all {
+				if !m.IsOut && m.ID > chat.ReadInboxMaxID {
+					storedUnread++
+				}
+			}
+			if storedUnread < chat.UnreadCount {
+				// Do not pin the stale tail before the owner fetches missing unread messages.
+				return -1, 0
+			}
 			for i, m := range all {
 				if m.ID > chat.ReadInboxMaxID {
 					return i, m.ID
 				}
 			}
 		}
-		// No unread, or the read pointer is past everything stored: the anchor
-		// is the newest message.
+		// No unread: the anchor is the newest message.
 		fallthrough
 
 	default: // AnchorNewest

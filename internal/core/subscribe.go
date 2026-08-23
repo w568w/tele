@@ -69,7 +69,8 @@ func (o *Owner) maybeBackfill(id project.SubID, w project.Window) {
 	contents := project.BuildChat(o.reader(), cw)
 	chat, _ := o.state.Store().GetChat(cw.ChatID)
 	needsChannelMetadata := cw.ThreadRootID == 0 && chat.Peer.IsChannel() && len(contents.Messages) > 0
-	if !needsBackfill(contents, cw) && !needsReplyPreviews(contents.Messages) && !needsChannelMetadata {
+	_, _, needsGapRepair := recoverableHistoryGap(contents.Messages, chat.Peer, o.Config().UI.HistoryLimit)
+	if !needsBackfill(contents, cw) && !needsGapRepair && !needsReplyPreviews(contents.Messages) && !needsChannelMetadata {
 		return
 	}
 	go o.backfill(o.ctx, id, cw)

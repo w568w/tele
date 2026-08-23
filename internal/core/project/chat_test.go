@@ -115,7 +115,7 @@ func TestBuildChat_FirstUnreadWithNoUnreadBehavesAsNewest(t *testing.T) {
 	assert.Equal(t, []int{8, 9, 10}, ids(got.Messages))
 }
 
-func TestBuildChat_FirstUnreadWithReadPointerPastEverythingStoredIsNewest(t *testing.T) {
+func TestBuildChat_FirstUnreadMissingFromStoreLeavesAnchorUnresolved(t *testing.T) {
 	// UnreadCount claims unread, but every stored message is at or below the read
 	// pointer: the unread messages have not been fetched yet.
 	r := readerWith(domain.Chat{ID: 1, UnreadCount: 3, ReadInboxMaxID: 10}, msgs(10))
@@ -124,7 +124,8 @@ func TestBuildChat_FirstUnreadWithReadPointerPastEverythingStoredIsNewest(t *tes
 		ChatID: 1, Anchor: project.Anchor{Kind: project.AnchorFirstUnread}, Before: 2,
 	})
 
-	assert.Equal(t, 10, got.AnchorMsgID)
+	assert.Zero(t, got.AnchorMsgID)
+	assert.Empty(t, got.Messages)
 }
 
 func TestBuildChat_MessageAnchorIsSymmetric(t *testing.T) {

@@ -24,6 +24,7 @@ import (
 type stubConn struct {
 	internaltg.Client
 	history   []domain.Message
+	pages     map[int][]domain.Message
 	messages  map[int]domain.Message
 	windows   map[int][]domain.Message
 	calls     atomic.Int32
@@ -38,10 +39,13 @@ func (s *stubConn) Connect(context.Context, *config.Config, *internaltg.AuthFlow
 
 func (s *stubConn) Updates() <-chan store.Event { return nil }
 
-func (s *stubConn) GetHistory(_ context.Context, _ domain.Peer, _ int, _ int) ([]domain.Message, error) {
+func (s *stubConn) GetHistory(_ context.Context, _ domain.Peer, offsetID int, _ int) ([]domain.Message, error) {
 	s.calls.Add(1)
 	if s.release != nil {
 		<-s.release
+	}
+	if page, ok := s.pages[offsetID]; ok {
+		return page, nil
 	}
 	return s.history, nil
 }
@@ -182,6 +186,56 @@ func TestOwner_SubscribingToAnUnfilledChatWindowBackfills(t *testing.T) {
 	require.True(t, ok, "the client must not have to know the store was empty")
 	require.NotNil(t, d.Chat)
 	assert.Len(t, d.Chat.Contents.Messages, 2)
+}
+
+func TestOwner_FirstUnreadBackfillLoadsEveryMissingPage(t *testing.T) {
+	c := &stubConn{pages: map[int][]domain.Message{
+		0:  testMessages(15, 16),
+		15: testMessages(13, 14),
+		13: testMessages(11, 12),
+	}}
+	o, s := newOwnerWithClient(t, c)
+	o.Config().UI.HistoryLimit = 2
+	s.Store().SetChat(domain.Chat{
+		ID: 7, Peer: domain.Peer{ID: 7}, UnreadCount: 6, ReadInboxMaxID: 10,
+	})
+	s.Store().SetMessages(7, testMessages(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+
+	o.Subscribe(project.ChatWindow{
+		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorFirstUnread}, Before: 2,
+	})
+
+	_, _ = recvDelta(t, o.Deltas())
+	d, ok := recvDelta(t, o.Deltas())
+	require.True(t, ok)
+	require.NotNil(t, d.Chat)
+	assert.Equal(t, project.ChatReset, d.Chat.Kind)
+	assert.Equal(t, []int{9, 10, 11, 12, 13, 14, 15, 16}, msgIDs(d.Chat.Contents.Messages))
+	assert.Equal(t, int32(3), c.calls.Load(), "the unread range spans three server pages")
+}
+
+func TestOwner_OpenRepairsLargeCachedSupergroupGap(t *testing.T) {
+	c := &stubConn{pages: map[int][]domain.Message{
+		8: testMessages(3, 4, 5, 6, 7),
+		3: testMessages(1, 2),
+	}}
+	o, s := newOwnerWithClient(t, c)
+	o.Config().UI.HistoryLimit = 5
+	s.Store().SetChat(domain.Chat{
+		ID: 7, Peer: domain.Peer{ID: 7, Type: domain.PeerSuperGroup}, ReadInboxMaxID: 9,
+	})
+	s.Store().SetMessages(7, testMessages(1, 2, 8, 9))
+
+	o.Subscribe(project.ChatWindow{
+		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorFirstUnread}, Before: 2,
+	})
+
+	_, _ = recvDelta(t, o.Deltas())
+	require.Eventually(t, func() bool {
+		return len(s.Store().Messages(7)) == 9
+	}, time.Second, time.Millisecond)
+	assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9}, msgIDs(s.Store().Messages(7)))
+	assert.Equal(t, int32(2), c.calls.Load(), "repair pages backward until they overlap the lower cached range")
 }
 
 func TestOwner_FullWindowDoesNotBackfill(t *testing.T) {
@@ -328,6 +382,14 @@ func msgIDs(msgs []domain.Message) []int {
 		ids[i] = msg.ID
 	}
 	return ids
+}
+
+func testMessages(ids ...int) []domain.Message {
+	msgs := make([]domain.Message, len(ids))
+	for i, id := range ids {
+		msgs[i] = domain.Message{ID: id, ChatID: 7, Date: time.Unix(int64(id), 0)}
+	}
+	return msgs
 }
 
 // Rapid scroll-up fires many window moves. Without the guard each one starts its
