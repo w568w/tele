@@ -42,9 +42,18 @@ func TestConvertMessage_Regular(t *testing.T) {
 }
 
 func TestConvertMessage_Service(t *testing.T) {
-	raw := &tg.MessageService{ID: 1}
-	_, ok := convertMessage(raw, 10)
-	assert.False(t, ok)
+	raw := &tg.MessageService{
+		ID: 1, FromID: &tg.PeerUser{UserID: 5}, Date: 1700000000,
+		Action: &tg.MessageActionChatJoinedByRequest{},
+	}
+	msg, ok := convertMessage(raw, 10)
+	require.True(t, ok)
+	assert.Equal(t, 1, msg.ID)
+	assert.Equal(t, int64(10), msg.ChatID)
+	assert.Equal(t, int64(5), msg.SenderID)
+	assert.Equal(t, "chat joined by request", msg.Text)
+	assert.Equal(t, time.Unix(1700000000, 0), msg.Date)
+	assert.True(t, msg.IsService)
 }
 
 func TestParseHistory_ChronologicalOrder(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gotd/td/tg"
 	"github.com/sorokin-vladimir/tele/internal/domain"
@@ -107,6 +108,9 @@ func parseHistory(result tg.MessagesMessagesClass, chatID int64) []domain.Messag
 	for _, raw := range rawMsgs {
 		if msg, ok := convertMessage(raw, chatID); ok {
 			msg.SenderName = nameMap[msg.SenderID]
+			if msg.SenderName == "" {
+				msg.SenderName = chatNameMap[msg.SenderID]
+			}
 			if msg.SenderName == "" && msg.SenderID == 0 && !msg.IsOut {
 				// nil FromID: sender is the chat peer (private chat → user)
 				// or the chat entity itself (channel/group anonymous post)
@@ -261,6 +265,9 @@ func buildDocumentRef(doc *tg.Document) *domain.DocumentRef {
 }
 
 func convertMessage(raw tg.MessageClass, chatID int64) (domain.Message, bool) {
+	if msg, ok := raw.(*tg.MessageService); ok {
+		return convertServiceMessage(msg, chatID), true
+	}
 	msg, ok := raw.(*tg.Message)
 	if !ok {
 		return domain.Message{}, false
@@ -331,6 +338,73 @@ func convertMessage(raw tg.MessageClass, chatID int64) (domain.Message, bool) {
 		}
 	}
 	return out, true
+}
+
+func convertServiceMessage(msg *tg.MessageService, chatID int64) domain.Message {
+	out := domain.Message{
+		ID:        msg.ID,
+		ChatID:    chatID,
+		SenderID:  peerIDFromPeer(msg.FromID),
+		Text:      serviceActionText(msg.Action),
+		Date:      time.Unix(int64(msg.Date), 0),
+		IsOut:     msg.Out,
+		IsService: true,
+		Mentioned: msg.Mentioned,
+	}
+	if hdr, ok := msg.ReplyTo.(*tg.MessageReplyHeader); ok {
+		out.ReplyToMsgID = hdr.ReplyToMsgID
+		out.ThreadRootID = hdr.ReplyToTopID
+	}
+	if msg.Reactions.Results != nil {
+		out.Reactions = convertReactions(msg.Reactions)
+		out.HasUnreadReactions = reactionsHaveUnread(msg.Reactions)
+	}
+	return out
+}
+
+func serviceActionText(action tg.MessageActionClass) string {
+	switch a := action.(type) {
+	case *tg.MessageActionChatCreate:
+		return fmt.Sprintf("created the group %q", a.Title)
+	case *tg.MessageActionChannelCreate:
+		return fmt.Sprintf("created the channel %q", a.Title)
+	case *tg.MessageActionChatEditTitle:
+		return fmt.Sprintf("changed the title to %q", a.Title)
+	case *tg.MessageActionTopicCreate:
+		return fmt.Sprintf("created the topic %q", a.Title)
+	case *tg.MessageActionTopicEdit:
+		if a.Title != "" {
+			return fmt.Sprintf("changed the topic title to %q", a.Title)
+		}
+	case *tg.MessageActionCustomAction:
+		if a.Message != "" {
+			return a.Message
+		}
+	}
+	if action == nil {
+		return "service message"
+	}
+	name := strings.TrimPrefix(action.TypeName(), "messageAction")
+	if name == "" || name == "Empty" {
+		return "service message"
+	}
+	runes := []rune(name)
+	var text strings.Builder
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) &&
+			(unicode.IsLower(runes[i-1]) || i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+			text.WriteByte(' ')
+		}
+		text.WriteRune(unicode.ToLower(r))
+	}
+	return text.String()
+}
+
+func messageDate(raw tg.MessageClass) int {
+	if msg, ok := raw.(interface{ GetDate() int }); ok {
+		return msg.GetDate()
+	}
+	return 0
 }
 
 // reactionsHaveUnread reports whether any recent reaction on the message is

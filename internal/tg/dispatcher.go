@@ -57,6 +57,10 @@ func setupDispatcher(
 		}
 		if user, ok := e.Users[msg.SenderID]; ok {
 			msg.SenderName = userDisplayName(user)
+		} else if ch, ok := e.Channels[msg.SenderID]; ok {
+			msg.SenderName = channelTitle(ch)
+		} else if chat, ok := e.Chats[msg.SenderID]; ok {
+			msg.SenderName = groupTitle(chat)
 		} else if msg.SenderID != 0 && !msg.IsOut {
 			// This update omitted the sender's User entity (intermittent for
 			// supergroup messages) — fall back to a name seen in an earlier
@@ -339,17 +343,8 @@ func convertTypingAction(a tg.SendMessageActionClass) domain.TypingAction {
 }
 
 func extractPeerID(raw tg.MessageClass) int64 {
-	msg, ok := raw.(*tg.Message)
-	if !ok {
-		return 0
-	}
-	switch p := msg.PeerID.(type) {
-	case *tg.PeerUser:
-		return p.UserID
-	case *tg.PeerChat:
-		return p.ChatID
-	case *tg.PeerChannel:
-		return p.ChannelID
+	if msg, ok := raw.(interface{ GetPeerID() tg.PeerClass }); ok {
+		return peerIDFromPeer(msg.GetPeerID())
 	}
 	return 0
 }

@@ -40,6 +40,35 @@ func (s *State) ApplyIncoming(msg domain.Message) (Change, bool) {
 // Text and reactions are not alternatives, and treating them as such dropped
 // those reactions until the chat was reopened (#199).
 func (s *State) ApplyEdit(msg domain.Message) (Change, bool) {
+	if msg.IsService {
+		for _, old := range s.st.Messages(msg.ChatID) {
+			if old.ID != msg.ID {
+				continue
+			}
+			if msg.SenderName == "" {
+				msg.SenderName = old.SenderName
+			}
+			if msg.ReplyPreview == nil && msg.ReplyToMsgID == old.ReplyToMsgID {
+				msg.ReplyPreview = old.ReplyPreview
+			}
+			s.st.ReplaceMessage(msg.ChatID, msg)
+			unreadChanged := false
+			if msg.HasUnreadReactions {
+				unreadChanged = s.st.ApplyUnreadReaction(msg.ChatID, msg.ID, true)
+			}
+			c := Change{
+				Kind:                  ChangeMessageEdited,
+				ChatID:                msg.ChatID,
+				Message:               msg,
+				MsgID:                 msg.ID,
+				ReactionsUnread:       msg.HasUnreadReactions,
+				UnreadReactionChanged: unreadChanged,
+			}
+			s.commit(c)
+			return c, true
+		}
+		return Change{}, false
+	}
 	if msg.EditDate == nil {
 		return s.ApplyReactions(msg.ChatID, msg.ID, msg.Reactions, msg.HasUnreadReactions)
 	}

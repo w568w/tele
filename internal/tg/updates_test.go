@@ -54,11 +54,14 @@ func TestSetupDispatcher_NewMessage(t *testing.T) {
 	}
 }
 
-func TestSetupDispatcher_ServiceMessageIgnored(t *testing.T) {
+func TestSetupDispatcher_ServiceMessageDelivered(t *testing.T) {
 	dispatcher, mustDeliver, _ := newTestDispatcher(t, noSuppress)
 
 	ctx := context.Background()
-	svcMsg := &tg.MessageService{ID: 1}
+	svcMsg := &tg.MessageService{
+		ID: 1, PeerID: &tg.PeerUser{UserID: 10},
+		Action: &tg.MessageActionCustomAction{Message: "joined the chat"},
+	}
 	update := &tg.UpdateNewMessage{Message: svcMsg, Pts: 1, PtsCount: 1}
 
 	err := dispatcher.Handle(ctx, &tg.Updates{
@@ -67,10 +70,12 @@ func TestSetupDispatcher_ServiceMessageIgnored(t *testing.T) {
 	require.NoError(t, err)
 
 	select {
-	case <-mustDeliver:
-		t.Fatal("unexpected event for service message")
-	case <-time.After(100 * time.Millisecond):
-		// expected: no event
+	case evt := <-mustDeliver:
+		assert.Equal(t, store.EventNewMessage, evt.Kind)
+		assert.Equal(t, int64(10), evt.Message.ChatID)
+		assert.Equal(t, "joined the chat", evt.Message.Text)
+	case <-time.After(time.Second):
+		t.Fatal("no event received for service message")
 	}
 }
 
@@ -501,18 +506,23 @@ func TestSetupDispatcher_EditChannelMessage_EmitsEditEvent(t *testing.T) {
 	}
 }
 
-func TestSetupDispatcher_EditServiceMessageIgnored(t *testing.T) {
+func TestSetupDispatcher_EditServiceMessageReplacesByID(t *testing.T) {
 	dispatcher, mustDeliver, _ := newTestDispatcher(t, noSuppress)
 
-	update := &tg.UpdateEditMessage{Message: &tg.MessageService{ID: 1}, Pts: 1, PtsCount: 1}
+	update := &tg.UpdateEditMessage{Message: &tg.MessageService{
+		ID: 1, PeerID: &tg.PeerUser{UserID: 10},
+		Action: &tg.MessageActionCustomAction{Message: "updated service event"},
+	}, Pts: 1, PtsCount: 1}
 	err := dispatcher.Handle(context.Background(), &tg.Updates{Updates: []tg.UpdateClass{update}})
 	require.NoError(t, err)
 
 	select {
-	case <-mustDeliver:
-		t.Fatal("unexpected event for edited service message")
-	case <-time.After(100 * time.Millisecond):
-		// expected: no event
+	case evt := <-mustDeliver:
+		assert.Equal(t, store.EventEditMessage, evt.Kind)
+		assert.Equal(t, 1, evt.Message.ID)
+		assert.Equal(t, "updated service event", evt.Message.Text)
+	case <-time.After(time.Second):
+		t.Fatal("no replacement event received for edited service message")
 	}
 }
 
@@ -595,8 +605,8 @@ func TestExtractPeerID(t *testing.T) {
 		},
 		{
 			name:   "ServiceMessage",
-			raw:    &tg.MessageService{ID: 1},
-			wantID: 0,
+			raw:    &tg.MessageService{ID: 1, PeerID: &tg.PeerChannel{ChannelID: 300}},
+			wantID: 300,
 		},
 	}
 

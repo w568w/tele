@@ -286,6 +286,7 @@ type Message struct {
 	Text       string
 	Date       time.Time
 	IsOut      bool
+	IsService  bool
 	Entities   []MessageEntity
 	Media      *MediaRef    // nil if message has no media
 	Photo      *PhotoRef    // nil if message has no photo

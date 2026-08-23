@@ -74,6 +74,25 @@ func TestApplyEdit_RealEditUpdatesText(t *testing.T) {
 	assert.False(t, st.Messages(1)[0].HasWebPreview)
 }
 
+func TestApplyEdit_ServiceMessageReplacesWithoutDoubleCountingUnread(t *testing.T) {
+	s, st := newState(t)
+	st.SetChat(domain.Chat{ID: 1, UnreadCount: 1, ReadInboxMaxID: 4})
+	st.AppendMessage(domain.Message{
+		ID: 5, ChatID: 1, Text: "before", SenderName: "Ada", IsService: true,
+	})
+
+	chg, ok := s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "after", IsService: true,
+	})
+
+	require.True(t, ok)
+	assert.Equal(t, state.ChangeMessageEdited, chg.Kind)
+	assert.Equal(t, "after", st.Messages(1)[0].Text)
+	assert.Equal(t, "Ada", st.Messages(1)[0].SenderName)
+	chat, _ := st.GetChat(1)
+	assert.Equal(t, 1, chat.UnreadCount)
+}
+
 // A reaction on a message that was genuinely edited earlier arrives with a
 // non-nil EditDate: edit_date still carries the original edit time and
 // edit_hide is false, because the "edited" label genuinely should show. The

@@ -147,8 +147,8 @@ func (c *GotdClient) getDialogs(ctx context.Context, folderID int) ([]domain.Cha
 		// Find the top_message date for this dialog
 		msgDateIndex := make(map[int]int, len(msgs))
 		for _, raw := range msgs {
-			if m, ok := raw.(*tg.Message); ok {
-				msgDateIndex[m.ID] = m.Date
+			if date := messageDate(raw); date != 0 {
+				msgDateIndex[messageID(raw)] = date
 			}
 		}
 		nextDate := msgDateIndex[lastDlg.TopMessage]
@@ -220,8 +220,8 @@ func (c *GotdClient) parseDialogs(result tg.MessagesDialogsClass) []domain.Chat 
 	// Build message date index: msgID → date
 	msgDate := make(map[int]time.Time, len(msgs))
 	for _, raw := range msgs {
-		if m, ok := raw.(*tg.Message); ok {
-			msgDate[m.ID] = time.Unix(int64(m.Date), 0)
+		if date := messageDate(raw); date != 0 {
+			msgDate[messageID(raw)] = time.Unix(int64(date), 0)
 		}
 	}
 
@@ -302,7 +302,7 @@ func (c *GotdClient) parseDialogs(result tg.MessagesDialogsClass) []domain.Chat 
 		chat.UnreadMentionsCount = dlg.UnreadMentionsCount
 		chat.ReadInboxMaxID = dlg.ReadInboxMaxID
 		chat.ReadOutboxMaxID = dlg.ReadOutboxMaxID
-		chat.LastMessage = &domain.Message{Date: m.lastMsgAt}
+		chat.LastMessage = &domain.Message{ID: dlg.TopMessage, Date: m.lastMsgAt}
 		if d, ok := dlg.GetDraft(); ok {
 			chat.Draft = draftText(d)
 		}
