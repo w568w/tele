@@ -473,6 +473,10 @@ func (s *SQLiteStore) RemoveMessages(chatID int64, msgIDs []int) {
 // Caller holds the lock.
 func (s *SQLiteStore) removeMessagesLocked(chatID int64, msgIDs []int) {
 	toRemove := make(map[int]struct{}, len(msgIDs))
+	unread := s.unreadMsgs[chatID]
+	mentions := s.unreadMentionMsgs[chatID]
+	reactions := s.unreadReactionMsgs[chatID]
+	unreadBefore, mentionsBefore, reactionsBefore := len(unread), len(mentions), len(reactions)
 	for _, id := range msgIDs {
 		toRemove[id] = struct{}{}
 		// Only drop the index entry if it points here: message IDs are unique
@@ -482,6 +486,20 @@ func (s *SQLiteStore) removeMessagesLocked(chatID int64, msgIDs []int) {
 			delete(s.msgChat, id)
 		}
 		s.markMsgDeletedLocked(chatID, id)
+		delete(unread, id)
+		delete(mentions, id)
+		delete(reactions, id)
+	}
+	unreadRemoved := unreadBefore - len(unread)
+	mentionsRemoved := mentionsBefore - len(mentions)
+	reactionsRemoved := reactionsBefore - len(reactions)
+	if unreadRemoved+mentionsRemoved+reactionsRemoved > 0 {
+		chat := s.chats[chatID]
+		chat.UnreadMentionsCount = max(0, chat.UnreadMentionsCount-mentionsRemoved)
+		chat.UnreadReactionsCount = max(0, chat.UnreadReactionsCount-reactionsRemoved)
+		s.recomputeUnreadLocked(&chat)
+		s.chats[chatID] = chat
+		s.markDirtyLocked(chatID)
 	}
 	msgs := s.messages[chatID]
 	if len(msgs) == 0 {

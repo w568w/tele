@@ -85,6 +85,19 @@ func TestApplyUnreadMessage_AddsOnTopOfServerBaseline(t *testing.T) {
 	assert.Equal(t, 5, c.UnreadCount)
 }
 
+func TestRemoveMessages_DropsTrackedUnreadMessages(t *testing.T) {
+	s := store.NewMemory()
+	s.SetChat(domain.Chat{ID: 1, ReadInboxMaxID: 10})
+	for _, id := range []int{11, 12} {
+		require.True(t, store.ApplyIncomingMessage(s, domain.Message{ID: id, ChatID: 1, IsService: true}))
+	}
+
+	s.RemoveMessages(1, []int{11, 12})
+
+	c, _ := s.GetChat(1)
+	assert.Equal(t, 0, c.UnreadCount)
+}
+
 // On restart the persisted count becomes the baseline, so counting resumes from
 // it instead of restarting at zero.
 func TestApplyUnreadMessage_ResumesFromPersistedCountAfterReopen(t *testing.T) {
