@@ -1248,8 +1248,9 @@ func TestRoot_FolderSelectedMsg_FocusesChatList(t *testing.T) {
 	assert.Equal(t, ui.FocusChatList, m.CurrentFocus())
 }
 
-func TestRoot_OpenSameChatAgain_OnlyFocusesChatPane(t *testing.T) {
+func TestRoot_OpenSameChatAgain_RefillsExistingWindow(t *testing.T) {
 	m, _ := newRootWithOpenChat(t)
+	owner := ownerOf(t, m)
 
 	newM, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	m = newM.(ui.RootModel)
@@ -1259,7 +1260,9 @@ func TestRoot_OpenSameChatAgain_OnlyFocusesChatPane(t *testing.T) {
 	m = newM.(ui.RootModel)
 
 	assert.Equal(t, ui.FocusChat, m.CurrentFocus())
-	assert.Nil(t, cmd, "re-opening same chat must not trigger a history reload")
+	assert.Nil(t, cmd)
+	require.Len(t, owner.moves, 1)
+	assert.Equal(t, int64(1), owner.moves[0].(project.ChatWindow).ChatID)
 }
 
 func TestRoot_EventDeleteMessages_Channel_RemovesFromCurrentChat(t *testing.T) {

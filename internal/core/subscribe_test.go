@@ -238,8 +238,8 @@ func TestOwner_OpenRepairsLargeCachedSupergroupGap(t *testing.T) {
 	assert.Equal(t, int32(2), c.calls.Load(), "repair pages backward until they overlap the lower cached range")
 }
 
-func TestOwner_FullWindowDoesNotBackfill(t *testing.T) {
-	c := &stubConn{}
+func TestOwner_ReopeningSameWindowBackfillsNewUnreadTail(t *testing.T) {
+	c := &stubConn{history: []domain.Message{{ID: 4, ChatID: 7, Date: time.Unix(4, 0)}}}
 	o, s := newOwnerWithClient(t, c)
 	s.Store().SetChat(domain.Chat{ID: 7, Peer: domain.Peer{ID: 7}})
 	s.Store().SetMessages(7, []domain.Message{
@@ -248,12 +248,22 @@ func TestOwner_FullWindowDoesNotBackfill(t *testing.T) {
 		{ID: 3, ChatID: 7, Date: time.Unix(3, 0)},
 	})
 
-	o.Subscribe(project.ChatWindow{
-		ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorNewest}, Before: 1,
-	})
+	w := project.ChatWindow{ChatID: 7, Anchor: project.Anchor{Kind: project.AnchorFirstUnread}, Before: 1}
+	id := o.Subscribe(w)
 
 	_, _ = recvDelta(t, o.Deltas())
 	assert.Zero(t, c.calls.Load(), "the store already held everything the window asked for")
+
+	s.Store().SetChat(domain.Chat{
+		ID: 7, Peer: domain.Peer{ID: 7}, UnreadCount: 1, ReadInboxMaxID: 3,
+		LastMessage: &c.history[0],
+	})
+	o.MoveWindow(id, w)
+
+	require.Eventually(t, func() bool {
+		return len(s.Store().Messages(7)) == 4
+	}, time.Second, time.Millisecond)
+	assert.Equal(t, int32(1), c.calls.Load())
 }
 
 func TestOwner_FullWindowHydratesAnOutOfWindowReplyPreview(t *testing.T) {

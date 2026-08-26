@@ -19,6 +19,9 @@ func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 		wasDiscussion := m.discussion != nil
 		m.discussion = nil
 		if msg.ChatID == m.currentChatID && !wasDiscussion {
+			if m.owner != nil && m.chatSub != 0 {
+				m.owner.MoveWindow(m.chatSub, m.chatWindow)
+			}
 			result, cmd := m.focusPane(FocusChat)
 			return result.(RootModel), cmd
 		}
