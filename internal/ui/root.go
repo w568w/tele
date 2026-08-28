@@ -425,6 +425,9 @@ func (m RootModel) Init() tea.Cmd {
 	// and enables OS color-scheme reports (mode 2031) for event-driven theme
 	// updates (issue #148).
 	cmds := []tea.Cmd{requestBGColorCmd(), enableColorSchemeReportsCmd()}
+	if os.Getenv("TERM") == "xterm-kitty" || os.Getenv("KITTY_WINDOW_ID") != "" {
+		cmds = append(cmds, tea.RequestCapability("kitty-query-version"))
+	}
 	if m.noticeActive() {
 		cmds = append(cmds, noticeTickCmd())
 	}

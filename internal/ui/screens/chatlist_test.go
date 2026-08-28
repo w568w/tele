@@ -396,7 +396,7 @@ func TestChatList_EmojiTitleBadgeWidthConsistent(t *testing.T) {
 	m.SetSize(30, 10)
 	setChats(m, []domain.Chat{
 		{ID: 1, Title: "Plain title", UnreadCount: 5},
-		{ID: 2, Title: "Emoji 🌐 title", UnreadCount: 5},
+		{ID: 2, Title: strings.Repeat("x", 20) + "🏳️‍🌈", UnreadCount: 5},
 	})
 	lines := strings.Split(m.View(), "\n")
 	require.GreaterOrEqual(t, len(lines), 2)

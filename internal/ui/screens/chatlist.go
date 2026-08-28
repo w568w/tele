@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	runewidth "github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
@@ -568,7 +568,7 @@ func (m *ChatListModel) View() string {
 
 		var content string
 		if badge == "" {
-			trunc := runewidth.Truncate(row.Title, inner, "…")
+			trunc := ansi.Truncate(row.Title, inner, "…")
 			lw := lipgloss.Width(trunc)
 			content = m.styleTitle(i, row.ID, trunc, base) + padRow(base, inner-lw)
 		} else {
@@ -577,7 +577,7 @@ func (m *ChatListModel) View() string {
 			if maxTitleW < 0 {
 				maxTitleW = 0
 			}
-			truncTitle := runewidth.Truncate(row.Title, maxTitleW, "…")
+			truncTitle := ansi.Truncate(row.Title, maxTitleW, "…")
 			titleW := lipgloss.Width(truncTitle)
 			pad := inner - titleW - badgeW
 			if pad < 0 {

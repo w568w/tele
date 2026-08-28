@@ -76,6 +76,21 @@ func (a *App) self() (int64, string) {
 	return a.selfID, a.selfUsername
 }
 
+// Kitty 0.42+ renders grapheme clusters but does not expose DEC mode 2027.
+// Bridge its version capability to Bubble Tea's existing width-mode switch.
+func kittyGraphemeWidthFilter(_ tea.Model, msg tea.Msg) tea.Msg {
+	capability, ok := msg.(tea.CapabilityMsg)
+	if !ok {
+		return msg
+	}
+
+	var major, minor int
+	if n, _ := fmt.Sscanf(capability.Content, "kitty-query-version=%d.%d", &major, &minor); n != 2 || (major == 0 && minor < 42) {
+		return msg
+	}
+	return tea.ModeReportMsg{Mode: ansi.ModeUnicodeCore, Value: ansi.ModePermanentlySet}
+}
+
 // pendingNotices lists the one-time startup messages this build can show.
 // Conditional entries are omitted when they do not apply, so a user only ever
 // sees what actually happened on their machine.
@@ -234,7 +249,7 @@ func (a *App) Run() error {
 	noticeSeen := notices.NewSQLiteSeen(a.sqlite.DB())
 	root = root.WithNotices(notices.Pending(a.pendingNotices(), noticeSeen), noticeSeen)
 
-	prog := tea.NewProgram(root)
+	prog := tea.NewProgram(root, tea.WithFilter(kittyGraphemeWidthFilter))
 
 	// Bridge: auth requests + ready signal → bubbletea
 	go func() {
