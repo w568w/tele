@@ -140,17 +140,30 @@ func parseHistory(result tg.MessagesMessagesClass, chatID int64) []domain.Messag
 	return out
 }
 
-// largestPhotoSize returns the PhotoSize type with the greatest pixel area, or
-// "" when none is a concrete PhotoSize.
+// photoSizeDimensions returns the downloadable size's type and dimensions.
+// Progressive photos are ordinary download locations too; their Sizes field
+// lists usable JPEG prefixes, not separate thumbnail types.
+func photoSizeDimensions(size tg.PhotoSizeClass) (string, int, int, bool) {
+	switch size := size.(type) {
+	case *tg.PhotoSize:
+		return size.Type, size.W, size.H, true
+	case *tg.PhotoSizeProgressive:
+		return size.Type, size.W, size.H, true
+	default:
+		return "", 0, 0, false
+	}
+}
+
+// largestPhotoSize returns the downloadable PhotoSize type with the greatest
+// pixel area.
 func largestPhotoSize(sizes []tg.PhotoSizeClass) string {
 	best := ""
 	bestArea := 0
 	for _, s := range sizes {
-		if ps, ok := s.(*tg.PhotoSize); ok {
-			if ps.W*ps.H > bestArea {
-				bestArea = ps.W * ps.H
-				best = ps.Type
-			}
+		typ, w, h, ok := photoSizeDimensions(s)
+		if ok && w*h > bestArea {
+			bestArea = w * h
+			best = typ
 		}
 	}
 	return best
@@ -165,7 +178,7 @@ func pickFullThumbSize(sizes []tg.PhotoSizeClass) string {
 // Prefers "m" (320px), then largest available PhotoSize by area.
 func pickThumbSize(sizes []tg.PhotoSizeClass) string {
 	for _, s := range sizes {
-		if ps, ok := s.(*tg.PhotoSize); ok && ps.Type == "m" {
+		if typ, _, _, ok := photoSizeDimensions(s); ok && typ == "m" {
 			return "m"
 		}
 	}

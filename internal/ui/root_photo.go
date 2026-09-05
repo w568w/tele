@@ -126,7 +126,7 @@ func (m *RootModel) startModalPhotoTransmit() tea.Cmd {
 	renderGen, img := pv.renderGen, pv.img
 	cols, rows := pv.cols, pv.rows
 	return func() tea.Msg {
-		seq, err := media.TransmitSeq(id, img, cols, rows)
+		seq, err := media.TransmitOriginalSeq(id, img, cols, rows)
 		return modalPhotoEncodedMsg{
 			renderGen: renderGen,
 			id:        id,

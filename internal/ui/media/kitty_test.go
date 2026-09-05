@@ -1,7 +1,9 @@
 package media_test
 
 import (
+	"bytes"
 	"encoding/base64"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +82,24 @@ func TestKittyStore_TransmitSeqIsDecodable(t *testing.T) {
 	hasDims := strings.Contains(seq, "s=") && strings.Contains(seq, "v=")
 	require.True(t, selfDescribing || hasDims,
 		"transmit must be PNG (f=100) or carry s=/v= dimensions")
+}
+
+func TestTransmitOriginalSeqPreservesSourcePixels(t *testing.T) {
+	seq, err := media.TransmitOriginalSeq(7, sampleImage(3000, 2), 1, 1)
+	require.NoError(t, err)
+
+	var encoded bytes.Buffer
+	for _, command := range strings.Split(seq, "\x1b_G")[1:] {
+		end := strings.Index(command, "\x1b\\")
+		separator := strings.Index(command[:end], ";")
+		chunk, err := base64.StdEncoding.DecodeString(command[separator+1 : end])
+		require.NoError(t, err)
+		encoded.Write(chunk)
+	}
+	img, err := png.Decode(&encoded)
+	require.NoError(t, err)
+	require.Equal(t, 3000, img.Bounds().Dx())
+	require.Equal(t, 2, img.Bounds().Dy())
 }
 
 func TestTransmitAnimationFrameSeqEditsRootFrame(t *testing.T) {

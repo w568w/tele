@@ -88,6 +88,15 @@ func TestConvertMessage_CommentsAndThreadAddress(t *testing.T) {
 	assert.Equal(t, int64(99), msg.DiscussionChatID)
 }
 
+func TestPhotoSizes_ProgressiveCanBeTheFullResolution(t *testing.T) {
+	sizes := []tg.PhotoSizeClass{
+		&tg.PhotoSize{Type: "m", W: 320, H: 240},
+		&tg.PhotoSizeProgressive{Type: "y", W: 1280, H: 960, Sizes: []int{20_000, 200_000}},
+	}
+	assert.Equal(t, "m", pickThumbSize(sizes))
+	assert.Equal(t, "y", pickFullThumbSize(sizes))
+}
+
 func TestConvertMessage_Mentioned(t *testing.T) {
 	raw := &tg.Message{ID: 7, Date: 1700000000, Mentioned: true, Message: "@you hi"}
 	out, ok := convertMessage(raw, 1)

@@ -162,11 +162,9 @@ func scaleForTransmit(img image.Image, cols int) image.Image {
 	return resize.Resize(uint(target), 0, img, resize.Bilinear) // 0 height preserves aspect
 }
 
-// TransmitSeq encodes a transmit-and-virtual-place sequence for an image scaled
-// into cols×rows cells. The image is resized to the reserved box's real pixel
-// size so it fills the placement regardless of terminal upscaling behavior.
-func TransmitSeq(id uint32, img image.Image, cols, rows int) (string, error) {
-	img = scaleForTransmit(img, cols)
+// TransmitOriginalSeq sends every source pixel for a full-photo modal. A
+// conforming Kitty placement scales the source into its c×r rectangle itself.
+func TransmitOriginalSeq(id uint32, img image.Image, cols, rows int) (string, error) {
 	var buf bytes.Buffer
 	opts := &kitty.Options{
 		Action: kitty.TransmitAndPut,
@@ -185,6 +183,13 @@ func TransmitSeq(id uint32, img image.Image, cols, rows int) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// TransmitSeq encodes a bounded transmit-and-virtual-place sequence for an
+// inline image. Scaling limits bandwidth and also fills terminals that do not
+// stretch Unicode-placeholder images to their c×r placement.
+func TransmitSeq(id uint32, img image.Image, cols, rows int) (string, error) {
+	return TransmitOriginalSeq(id, scaleForTransmit(img, cols), cols, rows)
 }
 
 // TransmitAnimationFrameSeq replaces the displayed root animation frame while
