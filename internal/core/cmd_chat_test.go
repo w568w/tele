@@ -43,6 +43,9 @@ type stubClient struct {
 	discussion   domain.Discussion
 	searchedFor  string
 	searchLimit  int
+	resolvedChat domain.Chat
+	resolvedName string
+	resolvedID   int64
 
 	// Send bookkeeping for the outbox worker (#193). Guarded because the worker
 	// calls from its own goroutine while the test asserts from another.
@@ -78,6 +81,16 @@ func (s *stubClient) Connect(context.Context, *config.Config, *internaltg.AuthFl
 }
 
 func (s *stubClient) Updates() <-chan store.Event { return nil }
+
+func (s *stubClient) ResolveUsername(_ context.Context, username string) (domain.Chat, error) {
+	s.resolvedName = username
+	return s.resolvedChat, s.err
+}
+
+func (s *stubClient) ResolveChannel(_ context.Context, channelID int64) (domain.Chat, error) {
+	s.resolvedID = channelID
+	return s.resolvedChat, s.err
+}
 
 func (s *stubClient) SetMuted(_ context.Context, _ domain.Peer, muted bool) error {
 	s.mutedWith = &muted

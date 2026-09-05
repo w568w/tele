@@ -31,9 +31,9 @@ func (m RootModel) handleChatListDelta(d *project.ChatListDelta) (RootModel, tea
 	switch d.Kind {
 	case project.ChatListReset:
 		m.chatList.SetWindow(d.Offset, d.Total, d.Rows)
-		activeChatID := m.currentChatID
-		if m.discussion != nil {
-			activeChatID = m.discussion.sourceChat.ID
+		activeChatID := m.chatListChatID
+		if activeChatID == 0 {
+			activeChatID = m.currentChatID
 		}
 		m.chatList.SetActive(activeChatID)
 
@@ -86,7 +86,7 @@ func (m RootModel) handleFailure(f core.Failure) (RootModel, tea.Cmd) {
 	}
 	if f.Op == core.OpSend {
 		if e, ok := telerr.As(f.Err); ok && e.Reason == telerr.ReasonGuestSendForbidden &&
-			f.Ref != "" && f.ChatID == m.currentChatID && m.discussion != nil {
+			f.Ref != "" && f.ChatID == m.currentChatID && m.inThread() {
 			// The server, not local membership state, is the gate. Merely opening
 			// or reading a discussion must never offer to join it.
 			if m.joinPrompt == nil {

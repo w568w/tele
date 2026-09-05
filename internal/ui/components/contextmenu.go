@@ -32,7 +32,7 @@ type DiscardOutboxRequest struct {
 
 // JumpToMsgRequest is emitted when the user selects "Jump to original".
 type JumpToMsgRequest struct {
-	MsgID int
+	Target domain.MessageTarget
 }
 
 // ReplyMsgRequest is emitted when the user activates reply for a message.
@@ -114,6 +114,7 @@ type ContextMenu struct {
 	// not name).
 	senderID     int64
 	replyToMsgID int
+	replyTarget  domain.MessageTarget
 	mediaKind    domain.MediaKind
 	hasMedia     bool
 	hasText      bool
@@ -156,6 +157,10 @@ func NewContextMenu(msgID int, isOut bool, senderID int64, replyToMsgID int, med
 func (cm *ContextMenu) SetComments(count int, chatID int64) {
 	cm.hasComments, cm.repliesCount, cm.discussionChatID = true, count, chatID
 	cm.refreshItems()
+}
+
+func (cm *ContextMenu) SetReplyTarget(target domain.MessageTarget) {
+	cm.replyTarget = target
 }
 
 // SetHasWebPreview enables the removal entry after construction. This keeps
@@ -366,8 +371,11 @@ func (cm *ContextMenu) execute() (*ContextMenu, tea.Cmd) {
 		msgID, chatID := cm.msgID, cm.discussionChatID
 		return nil, func() tea.Msg { return OpenDiscussionRequest{MsgID: msgID, DiscussionChatID: chatID} }
 	case keys.ActionJumpToOriginal:
-		replyToMsgID := cm.replyToMsgID
-		return nil, func() tea.Msg { return JumpToMsgRequest{MsgID: replyToMsgID} }
+		target := cm.replyTarget
+		if target.MsgID == 0 {
+			target.MsgID = cm.replyToMsgID
+		}
+		return nil, func() tea.Msg { return JumpToMsgRequest{Target: target} }
 	case keys.ActionReply:
 		msgID := cm.msgID
 		return nil, func() tea.Msg { return ReplyMsgRequest{MsgID: msgID} }

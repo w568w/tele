@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sorokin-vladimir/tele/internal/core"
+	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/store"
 	"github.com/sorokin-vladimir/tele/internal/telerr"
@@ -20,7 +21,7 @@ func TestThreadSendAddressesRootAndSelectedReply(t *testing.T) {
 	st := store.NewMemory()
 	m := newRootInternal(st, 20)
 	m.currentChatID = 200
-	m.discussion = &discussionNav{rootMsgID: 40, peer: peer}
+	m.chatWindow = project.ChatWindow{ChatID: 200, Peer: peer, ThreadRootID: 40, ThreadPeer: peer}
 
 	next, cmd := m.handleSendMsg(screens.SendMsgRequest{Text: "nested", ReplyToMsgID: 45})
 	require.NotNil(t, cmd)
@@ -37,7 +38,7 @@ func TestThreadSendWithoutSelectionRepliesToRoot(t *testing.T) {
 	st := store.NewMemory()
 	m := newRootInternal(st, 20)
 	m.currentChatID = 200
-	m.discussion = &discussionNav{rootMsgID: 40, peer: peer}
+	m.chatWindow = project.ChatWindow{ChatID: 200, Peer: peer, ThreadRootID: 40, ThreadPeer: peer}
 
 	next, cmd := m.handleSendMsg(screens.SendMsgRequest{Text: "comment"})
 	require.NotNil(t, cmd)
@@ -55,27 +56,39 @@ func TestApplyDiscussionOpenedCarriesPeerWithoutCreatingAChat(t *testing.T) {
 	st.SetChat(source)
 	m := newRootInternal(st, 20)
 	m.currentChatID = 100
+	m.chatListChatID = 100
+	m.chatWindow = project.ChatWindow{ChatID: 100, Peer: source.Peer, Title: source.Title}
 	peer := domain.Peer{ID: 200, Type: domain.PeerSuperGroup, AccessHash: 20}
 
 	next, _ := m.applyDiscussionOpened(discussionOpenedMsg{
-		sourceChatID: 100,
-		sourceMsgID:  7,
+		fromChatID: 100,
+		source:     domain.MessageTarget{ChatID: 100, Peer: source.Peer, Title: source.Title, MsgID: 7},
+		commentID:  55,
 		discussion: domain.Discussion{
 			Chat: domain.Chat{ID: 200, Title: "Linked group", Peer: peer}, RootMsgID: 40,
 		},
 	})
 
 	assert.Equal(t, peer, next.chatWindow.ThreadPeer)
-	assert.Equal(t, peer, next.discussion.peer)
+	assert.Equal(t, project.Anchor{Kind: project.AnchorMessage, MsgID: 55}, next.chatWindow.Anchor)
+	assert.Equal(t, 55, next.pendingJumpMsgID)
+	assert.True(t, next.inThread())
+	require.Len(t, next.pageHistory, 1)
+	assert.Equal(t, int64(100), next.pageHistory[0].window.ChatID)
 	_, exists := st.GetChat(200)
 	assert.False(t, exists)
+
+	returned, _ := next.popPage()
+	assert.False(t, returned.inThread())
+	assert.Equal(t, int64(100), returned.currentChatID)
+	assert.Empty(t, returned.pageHistory)
 }
 
 func TestGuestSendForbidden_PromptsBeforeJoiningAndRetriesOnlyAfterConfirm(t *testing.T) {
 	st := store.NewMemory()
 	m := newRootInternal(st, 20)
 	m.currentChatID = 200
-	m.discussion = &discussionNav{rootMsgID: 40}
+	m.chatWindow = project.ChatWindow{ChatID: 200, ThreadRootID: 40}
 	failure := core.Failure{
 		ChatID: 200,
 		Ref:    "comment-1",
@@ -104,7 +117,7 @@ func TestGuestSendForbidden_CancelNeverJoins(t *testing.T) {
 	st := store.NewMemory()
 	m := newRootInternal(st, 20)
 	m.currentChatID = 200
-	m.discussion = &discussionNav{rootMsgID: 40}
+	m.chatWindow = project.ChatWindow{ChatID: 200, ThreadRootID: 40}
 	m.joinPrompt = &joinDiscussionPrompt{chatID: 200, ref: "comment-1"}
 	o := m.owner.(*ownerStub)
 

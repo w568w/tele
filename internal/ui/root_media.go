@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sorokin-vladimir/tele/internal/audio"
+	"github.com/sorokin-vladimir/tele/internal/core"
 	vmedia "github.com/sorokin-vladimir/tele/internal/media"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 )
@@ -104,7 +105,7 @@ func (m RootModel) openTarget(t components.OpenTarget) (tea.Model, tea.Cmd) {
 	}
 	switch t.Kind {
 	case components.OpenTargetLink:
-		return m, openURLCmd(t.URL)
+		return m.openTelegramLink(t.URL)
 	case components.OpenTargetVideo:
 		if ref, ok := m.chat.SelectedMessageVideo(); ok {
 			if useInAppVideoPlayer(m.imageMode, vmedia.HasFFmpeg()) {
@@ -120,6 +121,35 @@ func (m RootModel) openTarget(t components.OpenTarget) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m RootModel) openTelegramLink(raw string) (tea.Model, tea.Cmd) {
+	link, ok := core.ParseTelegramLink(raw)
+	if m.owner == nil || !ok {
+		return m, openURLCmd(raw)
+	}
+	m.linkOpenSerial++
+	serial, fromChatID := m.linkOpenSerial, m.currentChatID
+	ctx, owner := m.ctx, m.owner
+	return m, func() tea.Msg {
+		target, err := owner.ResolveTelegramLink(ctx, link)
+		return telegramLinkResolvedMsg{
+			serial: serial, fromChatID: fromChatID, link: link, target: target, err: err,
+		}
+	}
+}
+
+func (m RootModel) handleTelegramLinkResolved(msg telegramLinkResolvedMsg) (RootModel, tea.Cmd) {
+	if msg.serial != m.linkOpenSerial || msg.fromChatID != m.currentChatID {
+		return m, nil
+	}
+	if msg.err != nil {
+		return m, func() tea.Msg { return errStatus("open link", msg.err) }
+	}
+	if msg.link.CommentID != 0 {
+		return m.openDiscussionTarget(msg.target, 0, msg.link.CommentID)
+	}
+	return m.navigateToMessage(msg.target, true)
 }
 
 // openAlbumPart opens media part i (1-based) of the selected album, seeded with

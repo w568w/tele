@@ -79,3 +79,83 @@ func TestOpenKey_OnPlainTextMessage_NoURLOpened(t *testing.T) {
 	}
 	assert.False(t, called, "plain text has no link to open")
 }
+
+func TestOpenKey_OnTelegramMessageLinkNavigatesInApp(t *testing.T) {
+	m, st := newRootOnChat(t)
+	peer := domain.Peer{ID: 2, Type: domain.PeerSuperGroup, AccessHash: 20}
+	st.SetChat(domain.Chat{ID: 2, Title: "Arch Linux CN", Peer: peer})
+	st.SetMessages(2, []domain.Message{{ID: 42, ChatID: 2, Text: "target", Date: time.Now()}})
+	st.AppendMessage(domain.Message{
+		ID: 3, ChatID: 1, Date: time.Now(), Text: "https://t.me/archlinuxcn_group/42",
+		Entities: []domain.MessageEntity{{Type: "url", Offset: 0, Length: 40}},
+	})
+	nm, _ := applyHistory(t, m, st, 1)
+	m = nm.(ui.RootModel)
+	owner := m.Owner().(*testOwner)
+	owner.linkTarget = domain.MessageTarget{
+		ChatID: 2, Peer: peer, Title: "Arch Linux CN", MsgID: 42,
+	}
+
+	nm, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	m = nm.(ui.RootModel)
+	require.NotNil(t, cmd)
+	nm, _ = m.Update(cmd())
+	m = nm.(ui.RootModel)
+	m = drainOwner(t, m)
+
+	assert.Equal(t, int64(2), m.CurrentChatID())
+	assert.Equal(t, 42, m.Chat().SelectedMessageID())
+}
+
+func TestOpenKey_OnUnsupportedTelegramLinkUsesSystemHandler(t *testing.T) {
+	var got string
+	defer ui.SetURLOpenerForTest(func(raw string) { got = raw })()
+	m, st := newRootOnChat(t)
+	raw := "https://t.me/addstickers/example"
+	st.AppendMessage(domain.Message{
+		ID: 3, ChatID: 1, Date: time.Now(), Text: raw,
+		Entities: []domain.MessageEntity{{Type: "url", Offset: 0, Length: len(raw)}},
+	})
+	nm, _ := applyHistory(t, m, st, 1)
+	m = nm.(ui.RootModel)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	require.NotNil(t, cmd)
+	drainMsgs(cmd())
+	assert.Equal(t, raw, got)
+}
+
+func TestOpenKey_OnTelegramCommentLinkOpensAnchoredDiscussion(t *testing.T) {
+	m, st := newRootOnChat(t)
+	raw := "https://t.me/channel/42?comment=77"
+	st.AppendMessage(domain.Message{
+		ID: 3, ChatID: 1, Date: time.Now(), Text: raw,
+		Entities: []domain.MessageEntity{{Type: "url", Offset: 0, Length: len(raw)}},
+	})
+	nm, _ := applyHistory(t, m, st, 1)
+	m = nm.(ui.RootModel)
+	owner := m.Owner().(*testOwner)
+	sourcePeer := domain.Peer{ID: 2, Type: domain.PeerChannel, AccessHash: 20}
+	discussionPeer := domain.Peer{ID: 3, Type: domain.PeerSuperGroup, AccessHash: 30}
+	owner.linkTarget = domain.MessageTarget{ChatID: 2, Peer: sourcePeer, Title: "Channel", MsgID: 42}
+	owner.discussion = domain.Discussion{
+		Chat:      domain.Chat{ID: 3, Title: "Discussion", Peer: discussionPeer},
+		RootMsgID: 40,
+		Messages:  []domain.Message{{ID: 77, ChatID: 3, ThreadRootID: 40, Text: "comment", Date: time.Now()}},
+	}
+
+	nm, cmd := m.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	m = nm.(ui.RootModel)
+	require.NotNil(t, cmd)
+	nm, cmd = m.Update(cmd())
+	m = nm.(ui.RootModel)
+	require.NotNil(t, cmd)
+	nm, _ = m.Update(cmd())
+	m = nm.(ui.RootModel)
+	m = drainOwner(t, m)
+
+	assert.Equal(t, int64(2), owner.discussionFrom)
+	assert.Equal(t, 42, owner.discussionMsgID)
+	assert.Equal(t, int64(3), m.CurrentChatID())
+	assert.Equal(t, 77, m.Chat().SelectedMessageID())
+}

@@ -13,51 +13,37 @@ func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case discussionOpenedMsg:
 		return m.applyDiscussionOpened(msg)
+	case telegramLinkResolvedMsg:
+		return m.handleTelegramLinkResolved(msg)
 
 	case screens.OpenChatMsg:
 		m.searchModel = nil
-		wasDiscussion := m.discussion != nil
-		m.discussion = nil
-		if msg.ChatID == m.currentChatID && !wasDiscussion {
+		if msg.ChatID == m.currentChatID && !m.inThread() {
+			m.linkOpenSerial++
+			m.pageHistory = nil
+			m.chatListChatID = msg.ChatID
 			if m.owner != nil && m.chatSub != 0 {
 				m.owner.MoveWindow(m.chatSub, m.chatWindow)
 			}
 			result, cmd := m.focusPane(FocusChat)
 			return result.(RootModel), cmd
 		}
-		// Persist the chat we are leaving as a Telegram draft before switching
-		// (#62). Captured here while currentChatID still points at the old chat.
-		var draftFlush tea.Cmd
-		if !wasDiscussion {
-			draftFlush = m.flushCurrentDraftCmd()
+		peer, title := msg.Peer, msg.Title
+		if m.st != nil {
+			if chat, ok := m.st.GetChat(msg.ChatID); ok {
+				peer, title = chat.Peer, chat.Title
+			}
 		}
-		m.currentChatID = msg.ChatID
-		m.stopGifAnim()
-		// Drop decoded GIF frames from the previous chat; they are large (up to
-		// gifMaxFrames RGBA images each) and otherwise accumulate for the whole
-		// session. They re-decode on demand if a GIF is selected again.
-		clear(m.gifFrames)
-		m.chatList.SetActiveByID(msg.ChatID)
-		if m.owner != nil {
-			m.owner.SetFocus(msg.ChatID)
+		m.pageHistory = nil
+		window := project.ChatWindow{
+			ChatID: msg.ChatID,
+			Peer:   peer,
+			Title:  title,
+			Anchor: project.Anchor{Kind: project.AnchorFirstUnread},
+			Before: m.historyLimit,
 		}
-		m.chat.ClearPendingAction()
-		m.pendingJumpMsgID = 0
-		// Paint the title immediately; everything else arrives on the
-		// subscription's first delta, which is always a full Reset.
-		m.chat.SetHeader(screens.ChatHeader{ChatID: msg.ChatID, Title: msg.Title})
-		m.chat.SetLoading(true)
-		m.chat.SetKnownImages(m.imageCache)
-		m.focus = FocusChat
-		m.chatList.SetFocused(false)
-		m.chat.SetFocused(true)
-		m.statusBar.SetActivePane("chat")
-		// Drop the previous chat's placements; reconcile (after this update)
-		// transmits the now-visible images.
-		m.requestKittyReset()
-
+		m, draftFlush := m.activatePage(window, msg.ChatID, 0, false)
 		reactionsCmd, mentionsCmd := m.clearChatBadgesOnOpen(msg.ChatID)
-		m.subscribeChat(msg.ChatID, msg.Peer)
 		return m, tea.Batch(draftFlush, reactionsCmd, mentionsCmd)
 
 	case screens.LoadMoreMsg:

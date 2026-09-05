@@ -442,13 +442,17 @@ func TestContextMenu_DirectKey_T_EmitsReactMsgRequest(t *testing.T) {
 
 func TestContextMenu_JumpToOriginal_EmitsJumpToMsgRequest(t *testing.T) {
 	cm := components.NewContextMenu(1, false, 0, 42, 0, false, false, nil, defaultKM())
+	target := domain.MessageTarget{
+		ChatID: 99, Peer: domain.Peer{ID: 99, Type: domain.PeerSuperGroup}, Title: "Source", MsgID: 42,
+	}
+	cm.SetReplyTarget(target)
 	// Jump to original is item 0 (prepended), cursor starts at 0.
 	newCM, cmd := cm.Update(pressEnter())
 	assert.Nil(t, newCM)
 	require.NotNil(t, cmd)
 	req, ok := cmd().(components.JumpToMsgRequest)
 	require.True(t, ok)
-	assert.Equal(t, 42, req.MsgID)
+	assert.Equal(t, target, req.Target)
 }
 
 func TestContextMenu_DirectKey_G_JumpsToOriginal(t *testing.T) {
@@ -458,7 +462,7 @@ func TestContextMenu_DirectKey_G_JumpsToOriginal(t *testing.T) {
 	require.NotNil(t, cmd)
 	req, ok := cmd().(components.JumpToMsgRequest)
 	require.True(t, ok)
-	assert.Equal(t, 42, req.MsgID)
+	assert.Equal(t, 42, req.Target.MsgID)
 }
 
 func navigateToDeleteSubPrompt(t *testing.T) *components.ContextMenu {

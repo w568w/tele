@@ -162,6 +162,10 @@ func (o *ownerStub) SearchContacts(_ context.Context, _ string, _ int) ([]domain
 	return nil, o.err
 }
 
+func (o *ownerStub) ResolveTelegramLink(_ context.Context, _ core.TelegramLink) (domain.MessageTarget, error) {
+	return domain.MessageTarget{}, o.err
+}
+
 func (o *ownerStub) GetParticipants(_ context.Context, chatID int64) ([]domain.ChatMember, error) {
 	o.calls = append(o.calls, cmdCall{name: "GetParticipants", chatID: chatID})
 	return o.participants, o.err

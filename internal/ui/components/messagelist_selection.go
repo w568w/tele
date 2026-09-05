@@ -129,6 +129,17 @@ func (ml *MessageList) SelectedMessageReplyToMsgID() int {
 	return 0
 }
 
+func (ml *MessageList) SelectedMessageReplyTarget() (domain.MessageTarget, bool) {
+	msg := ml.computeSelectedMsg()
+	if msg == nil || msg.ReplyToMsgID == 0 {
+		return domain.MessageTarget{}, false
+	}
+	if msg.ReplyTarget != nil {
+		return *msg.ReplyTarget, true
+	}
+	return domain.MessageTarget{ChatID: msg.ChatID, MsgID: msg.ReplyToMsgID}, true
+}
+
 func (ml *MessageList) SelectedMessageComments() (bool, int, int64) {
 	if msg := ml.computeSelectedMsg(); msg != nil {
 		return msg.HasComments, msg.RepliesCount, msg.DiscussionChatID

@@ -4,7 +4,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 
-	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 	"github.com/sorokin-vladimir/tele/internal/ui/screens"
 	"github.com/sorokin-vladimir/tele/internal/ui/theme"
@@ -138,26 +137,10 @@ func (m RootModel) updateUIMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 
 	case components.JumpToMsgRequest:
 		m.contextMenu = nil
-		if m.chat.ScrollToMessage(msg.MsgID) {
-			return m, m.startMessageHighlight(msg.MsgID)
+		if msg.Target.ChatID == 0 {
+			msg.Target = m.currentMessageTarget(msg.Target.MsgID)
 		}
-		if m.owner == nil || m.chatSub == 0 {
-			m.statusBar.SetStatus("Not in buffer")
-			return m, nil
-		}
-		m.pendingJumpMsgID = msg.MsgID
-		before := m.historyLimit / 2
-		after := m.historyLimit - before - 1
-		if after < 0 {
-			after = 0
-		}
-		m.chatWindow.ChatID = m.currentChatID
-		m.chatWindow.Anchor = project.Anchor{Kind: project.AnchorMessage, MsgID: msg.MsgID}
-		m.chatWindow.Before = before
-		m.chatWindow.After = after
-		m.chat.SetLoading(true)
-		m.owner.MoveWindow(m.chatSub, m.chatWindow)
-		return m, nil
+		return m.navigateToMessage(msg.Target, msg.Target.ChatID != m.currentChatID || m.inThread())
 
 	case msgHighlightFadeMsg:
 		// Ignore ticks from a superseded highlight.

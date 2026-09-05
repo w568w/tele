@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 
+	"github.com/sorokin-vladimir/tele/internal/core"
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 )
@@ -178,4 +179,12 @@ type fileDownloadDoneMsg struct {
 type chatLoadErrMsg struct {
 	chatID int64
 	text   string
+}
+
+type telegramLinkResolvedMsg struct {
+	serial     int
+	fromChatID int64
+	link       core.TelegramLink
+	target     domain.MessageTarget
+	err        error
 }

@@ -34,7 +34,7 @@ func rootOnOpenChatWithMsg(t *testing.T, msgID int) RootModel {
 func TestRoot_JumpToMsg_StartsHighlight(t *testing.T) {
 	m := rootOnOpenChatWithMsg(t, 5)
 
-	newM, cmd := m.Update(components.JumpToMsgRequest{MsgID: 5})
+	newM, cmd := m.Update(components.JumpToMsgRequest{Target: domain.MessageTarget{MsgID: 5}})
 	root := newM.(RootModel)
 
 	assert.Equal(t, 5, root.Chat().HighlightedMsgID())
@@ -52,7 +52,7 @@ func TestRoot_JumpToMsg_LoadsAnOutOfBufferAnchorThenHighlightsIt(t *testing.T) {
 		Message: domain.Message{ID: 100, ChatID: 1, Text: "reply", ReplyToMsgID: 1, Date: time.Now()}})
 	m = newM.(RootModel)
 
-	newM, _ = m.Update(components.JumpToMsgRequest{MsgID: 1})
+	newM, _ = m.Update(components.JumpToMsgRequest{Target: domain.MessageTarget{MsgID: 1}})
 	m = newM.(RootModel)
 	w, ok := m.owner.(*ownerStub).reg.Window(m.chatSub)
 	require.True(t, ok)
@@ -75,9 +75,56 @@ func TestRoot_JumpToMsg_LoadsAnOutOfBufferAnchorThenHighlightsIt(t *testing.T) {
 	assert.Equal(t, after+50, m.chatWindow.After)
 }
 
+func TestRoot_CrossChatJumpAndEscRestoreSourcePosition(t *testing.T) {
+	st := store.NewMemory()
+	peer1 := domain.Peer{ID: 1, Type: domain.PeerUser}
+	peer2 := domain.Peer{ID: 2, Type: domain.PeerSuperGroup, AccessHash: 20}
+	st.SetChat(domain.Chat{ID: 1, Title: "Replies", Peer: peer1})
+	st.SetChat(domain.Chat{ID: 2, Title: "Source", Peer: peer2})
+	st.SetMessages(1, []domain.Message{{ID: 5, ChatID: 1, Text: "reply", Date: time.Now()}})
+	st.SetMessages(2, []domain.Message{{ID: 9, ChatID: 2, Text: "original", Date: time.Now()}})
+	m := newRootInternal(st, 20).WithScreen(ScreenMain)
+	opened, _ := m.Update(screens.OpenChatMsg{ChatID: 1, Title: "Replies", Peer: peer1})
+	m = opened.(RootModel)
+	opened, _ = m.owner.(*ownerStub).drain(m)
+	m = opened.(RootModel)
+
+	jumped, _ := m.Update(components.JumpToMsgRequest{Target: domain.MessageTarget{
+		ChatID: 2, Peer: peer2, Title: "Source", MsgID: 9,
+	}})
+	m = jumped.(RootModel)
+	jumped, _ = m.owner.(*ownerStub).drain(m)
+	m = jumped.(RootModel)
+	require.Len(t, m.pageHistory, 1)
+	assert.Equal(t, int64(2), m.currentChatID)
+	assert.Equal(t, 9, m.chat.SelectedMessageID())
+
+	returned, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = returned.(RootModel)
+	returned, _ = m.owner.(*ownerStub).drain(m)
+	m = returned.(RootModel)
+	assert.Empty(t, m.pageHistory)
+	assert.Equal(t, int64(1), m.currentChatID)
+	assert.Equal(t, 5, m.chat.SelectedMessageID())
+}
+
+func TestRoot_PageHistoryIsLIFO(t *testing.T) {
+	m := rootOnOpenChatWithMsg(t, 1)
+	for id := int64(2); id <= 3; id++ {
+		peer := domain.Peer{ID: id, Type: domain.PeerUser}
+		m.owner.(*ownerStub).state.Store().SetChat(domain.Chat{ID: id, Title: "Peer", Peer: peer})
+		m, _ = m.navigateToMessage(domain.MessageTarget{ChatID: id, Peer: peer, Title: "Peer"}, true)
+	}
+	require.Len(t, m.pageHistory, 2)
+	m, _ = m.popPage()
+	assert.Equal(t, int64(2), m.currentChatID)
+	m, _ = m.popPage()
+	assert.Equal(t, int64(1), m.currentChatID)
+}
+
 func TestRoot_MsgHighlightFade_DecrementsOnTick(t *testing.T) {
 	m := rootOnOpenChatWithMsg(t, 5)
-	newM, _ := m.Update(components.JumpToMsgRequest{MsgID: 5})
+	newM, _ := m.Update(components.JumpToMsgRequest{Target: domain.MessageTarget{MsgID: 5}})
 	m = newM.(RootModel)
 	require.Equal(t, components.HighlightInitialStep, m.Chat().HighlightStep())
 
@@ -90,7 +137,7 @@ func TestRoot_MsgHighlightFade_DecrementsOnTick(t *testing.T) {
 
 func TestRoot_MsgHighlightFade_StaleSerialIgnored(t *testing.T) {
 	m := rootOnOpenChatWithMsg(t, 5)
-	newM, _ := m.Update(components.JumpToMsgRequest{MsgID: 5})
+	newM, _ := m.Update(components.JumpToMsgRequest{Target: domain.MessageTarget{MsgID: 5}})
 	m = newM.(RootModel)
 	before := m.Chat().HighlightStep()
 

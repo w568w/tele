@@ -71,6 +71,10 @@ type testOwner struct {
 	searchResult    []domain.Chat
 	participants    []domain.ChatMember
 	lastSearchQuery string
+	linkTarget      domain.MessageTarget
+	discussion      domain.Discussion
+	discussionFrom  int64
+	discussionMsgID int
 	// mediaPaths is what FetchMedia and SaveMedia serve; a slot with no entry
 	// answers NotFound, standing in for a download failure. fetched records what
 	// the client asked for, invalidated what it asked to drop.
@@ -180,6 +184,10 @@ func (o *testOwner) SetUnreadMark(_ context.Context, chatID int64, unread bool) 
 func (o *testOwner) SearchContacts(_ context.Context, q string, _ int) ([]domain.Chat, error) {
 	o.lastSearchQuery = q
 	return o.searchResult, o.cmdErr
+}
+
+func (o *testOwner) ResolveTelegramLink(_ context.Context, _ core.TelegramLink) (domain.MessageTarget, error) {
+	return o.linkTarget, o.cmdErr
 }
 
 func (o *testOwner) GetParticipants(_ context.Context, _ int64) ([]domain.ChatMember, error) {
@@ -447,8 +455,12 @@ func (o *testOwner) MarkDiscussionRead(_ context.Context, _ domain.Peer, _, _ in
 	return o.cmdErr
 }
 
-func (o *testOwner) OpenDiscussion(_ context.Context, _ int64, _ int, _ int64) (domain.Discussion, error) {
-	return domain.Discussion{}, o.cmdErr
+func (o *testOwner) OpenDiscussion(_ context.Context, sourceChatID int64, msgID int, _ int64) (domain.Discussion, error) {
+	o.discussionFrom, o.discussionMsgID = sourceChatID, msgID
+	if o.cmdErr == nil && o.discussion.Chat.ID != 0 {
+		o.state.ApplyHistory(o.discussion.Chat.ID, o.discussion.Messages)
+	}
+	return o.discussion, o.cmdErr
 }
 
 func (o *testOwner) AddToFolder(_ context.Context, filterID int, chatID int64, add bool) error {

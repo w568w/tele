@@ -38,6 +38,8 @@ func (m *RootModel) subscribeChat(chatID int64, fallbackPeer domain.Peer) {
 	}
 	m.chatWindow = project.ChatWindow{
 		ChatID: chatID,
+		Peer:   peer,
+		Title:  m.chat.Title(),
 		Anchor: project.Anchor{Kind: project.AnchorFirstUnread},
 		Before: m.historyLimit,
 		After:  0,
@@ -151,7 +153,7 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		// yank you out of it.
 		m.chat.SetMessagesKeepScroll(m.chatMsgs)
 		cmds := []tea.Cmd{m.markReadCmd(), m.pendingDownloadCmds([]domain.Message{d.Message})}
-		if m.discussion == nil && m.focus == FocusChat && d.Message.Mentioned {
+		if !m.inThread() && m.focus == FocusChat && d.Message.Mentioned {
 			cmds = append(cmds, m.readMentionsCmd(m.currentChatID))
 		}
 		return m, tea.Batch(cmds...)

@@ -58,6 +58,7 @@ type Owner interface {
 
 	// Queries. One-off answers nobody subscribes to.
 	SearchContacts(ctx context.Context, q string, limit int) ([]domain.Chat, error)
+	ResolveTelegramLink(ctx context.Context, link core.TelegramLink) (domain.MessageTarget, error)
 	GetParticipants(ctx context.Context, chatID int64) ([]domain.ChatMember, error)
 	OpenDiscussion(ctx context.Context, sourceChatID int64, msgID int, discussionChatID int64) (domain.Discussion, error)
 	// KnownUser answers from what the owner already holds, without a round

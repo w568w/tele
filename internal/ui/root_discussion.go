@@ -9,15 +9,7 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/ui/components"
 	"github.com/sorokin-vladimir/tele/internal/ui/keys"
-	"github.com/sorokin-vladimir/tele/internal/ui/screens"
 )
-
-type discussionNav struct {
-	sourceChat  domain.Chat
-	sourceMsgID int
-	rootMsgID   int
-	peer        domain.Peer
-}
 
 type joinDiscussionPrompt struct {
 	chatID int64
@@ -29,131 +21,65 @@ type joinDiscussionRetryMsg struct {
 }
 
 type discussionOpenedMsg struct {
-	sourceChatID int64
-	sourceMsgID  int
-	discussion   domain.Discussion
-	err          error
+	fromChatID int64
+	source     domain.MessageTarget
+	commentID  int
+	discussion domain.Discussion
+	err        error
 }
 
-func openDiscussionCmd(ctx context.Context, owner Owner, sourceChatID int64, sourceMsgID int, discussionChatID int64) tea.Cmd {
+func openDiscussionCmd(ctx context.Context, owner Owner, fromChatID int64, source domain.MessageTarget, discussionChatID int64, commentID int) tea.Cmd {
 	return func() tea.Msg {
-		discussion, err := owner.OpenDiscussion(ctx, sourceChatID, sourceMsgID, discussionChatID)
+		discussion, err := owner.OpenDiscussion(ctx, source.ChatID, source.MsgID, discussionChatID)
 		return discussionOpenedMsg{
-			sourceChatID: sourceChatID,
-			sourceMsgID:  sourceMsgID,
-			discussion:   discussion,
-			err:          err,
+			fromChatID: fromChatID,
+			source:     source,
+			commentID:  commentID,
+			discussion: discussion,
+			err:        err,
 		}
 	}
 }
 
 func (m RootModel) openDiscussion(sourceMsgID int, discussionChatID int64) (RootModel, tea.Cmd) {
+	return m.openDiscussionTarget(m.currentMessageTarget(sourceMsgID), discussionChatID, 0)
+}
+
+func (m RootModel) openDiscussionTarget(source domain.MessageTarget, discussionChatID int64, commentID int) (RootModel, tea.Cmd) {
 	m.contextMenu = nil
-	if m.owner == nil || m.st == nil || m.currentChatID == 0 {
+	if m.owner == nil || m.currentChatID == 0 || source.ChatID == 0 || source.MsgID == 0 {
 		return m, nil
 	}
 	m.chat.SetLoading(true)
-	return m, openDiscussionCmd(m.ctx, m.owner, m.currentChatID, sourceMsgID, discussionChatID)
+	return m, openDiscussionCmd(m.ctx, m.owner, m.currentChatID, source, discussionChatID, commentID)
 }
 
 func (m RootModel) applyDiscussionOpened(msg discussionOpenedMsg) (RootModel, tea.Cmd) {
-	if msg.sourceChatID != m.currentChatID || m.discussion != nil {
+	if msg.fromChatID != m.currentChatID {
 		return m, nil
 	}
 	if msg.err != nil {
 		m.chat.SetLoading(false)
 		return m, func() tea.Msg { return errStatus("open comments", msg.err) }
 	}
-	source, ok := m.st.GetChat(msg.sourceChatID)
-	if !ok {
-		m.chat.SetLoading(false)
-		return m, nil
+	title := "Comments · " + msg.source.Title
+	window := project.ChatWindow{
+		ChatID:                msg.discussion.Chat.ID,
+		Peer:                  msg.discussion.Chat.Peer,
+		Title:                 title,
+		Anchor:                project.Anchor{Kind: project.AnchorNewest},
+		Before:                m.historyLimit,
+		ThreadRootID:          msg.discussion.RootMsgID,
+		ThreadPeer:            msg.discussion.Chat.Peer,
+		ThreadTitle:           title,
+		ThreadReadInboxMaxID:  msg.discussion.ReadInboxMaxID,
+		ThreadReadOutboxMaxID: msg.discussion.ReadOutboxMaxID,
 	}
-
-	draftFlush := m.flushCurrentDraftCmd()
-	m.discussion = &discussionNav{
-		sourceChat:  source,
-		sourceMsgID: msg.sourceMsgID,
-		rootMsgID:   msg.discussion.RootMsgID,
-		peer:        msg.discussion.Chat.Peer,
+	if msg.commentID != 0 {
+		window.Anchor = project.Anchor{Kind: project.AnchorMessage, MsgID: msg.commentID}
+		window.Before, window.After = anchorSides(m.historyLimit)
 	}
-	m.currentChatID = msg.discussion.Chat.ID
-	m.stopGifAnim()
-	clear(m.gifFrames)
-	m.chat.ClearPendingAction()
-	m.pendingJumpMsgID = 0
-	m.chat.SetPeer(msg.discussion.Chat.Peer)
-	m.chat.SetHeader(screens.ChatHeader{
-		ChatID:          msg.discussion.Chat.ID,
-		DraftKey:        -int64(msg.discussion.RootMsgID),
-		Title:           "Comments · " + source.Title,
-		IsGroup:         true,
-		ReadOutboxMaxID: msg.discussion.ReadOutboxMaxID,
-	})
-	m.chat.SetLoading(true)
-	m.chat.SetKnownImages(m.imageCache)
-	m.focus = FocusChat
-	m.chatList.SetFocused(false)
-	m.chat.SetFocused(true)
-	m.statusBar.SetActivePane("chat")
-	m.chatList.SetActiveByID(source.ID)
-	if m.owner != nil {
-		m.owner.SetFocus(msg.discussion.Chat.ID)
-		if m.chatSub != 0 {
-			m.owner.Unsubscribe(m.chatSub)
-		}
-		m.chatWindow = project.ChatWindow{
-			ChatID:                msg.discussion.Chat.ID,
-			Anchor:                project.Anchor{Kind: project.AnchorNewest},
-			Before:                m.historyLimit,
-			ThreadRootID:          msg.discussion.RootMsgID,
-			ThreadPeer:            msg.discussion.Chat.Peer,
-			ThreadTitle:           "Comments · " + source.Title,
-			ThreadReadInboxMaxID:  msg.discussion.ReadInboxMaxID,
-			ThreadReadOutboxMaxID: msg.discussion.ReadOutboxMaxID,
-		}
-		m.chatSub = m.owner.Subscribe(m.chatWindow)
-	}
-	m.requestKittyReset()
-	return m, draftFlush
-}
-
-func (m RootModel) closeDiscussion() (tea.Model, tea.Cmd) {
-	if m.discussion == nil {
-		return m, nil
-	}
-	nav := *m.discussion
-	m.discussion = nil
-	m.currentChatID = nav.sourceChat.ID
-	m.stopGifAnim()
-	clear(m.gifFrames)
-	m.chat.ClearPendingAction()
-	m.pendingJumpMsgID = nav.sourceMsgID
-	m.chat.SetPeer(nav.sourceChat.Peer)
-	m.chat.SetHeader(screens.ChatHeader{ChatID: nav.sourceChat.ID, Title: nav.sourceChat.Title})
-	m.chat.SetLoading(true)
-	m.chat.SetKnownImages(m.imageCache)
-	m.chatList.SetActiveByID(nav.sourceChat.ID)
-	if m.owner != nil {
-		m.owner.SetFocus(nav.sourceChat.ID)
-		if m.chatSub != 0 {
-			m.owner.Unsubscribe(m.chatSub)
-		}
-		before := m.historyLimit / 2
-		after := m.historyLimit - before - 1
-		if after < 0 {
-			after = 0
-		}
-		m.chatWindow = project.ChatWindow{
-			ChatID: nav.sourceChat.ID,
-			Anchor: project.Anchor{Kind: project.AnchorMessage, MsgID: nav.sourceMsgID},
-			Before: before,
-			After:  after,
-		}
-		m.chatSub = m.owner.Subscribe(m.chatWindow)
-	}
-	m.requestKittyReset()
-	return m, nil
+	return m.activatePage(window, msg.source.ChatID, msg.commentID, true)
 }
 
 func (m RootModel) handleJoinDiscussionPromptKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

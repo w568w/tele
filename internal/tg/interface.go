@@ -117,6 +117,14 @@ type Client interface {
 	Updates() <-chan store.Event
 }
 
+// LinkResolver is the optional peer-resolution surface used by Telegram deep
+// links. Keeping it separate avoids making unrelated Client test doubles grow
+// methods they never call.
+type LinkResolver interface {
+	ResolveUsername(ctx context.Context, username string) (domain.Chat, error)
+	ResolveChannel(ctx context.Context, channelID int64) (domain.Chat, error)
+}
+
 // MessageOptionsClient is the optional send/edit surface for flags that most
 // callers never need. Keeping it separate avoids making every Client test
 // double implement variants of the ordinary message methods.

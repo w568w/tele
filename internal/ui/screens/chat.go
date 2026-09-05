@@ -330,7 +330,18 @@ func (m *ChatModel) PeerUserID() int64 {
 	return m.header.ChatID
 }
 func (m *ChatModel) SelectedMessageReplyToMsgID() int { return m.msgList.SelectedMessageReplyToMsgID() }
-func (m *ChatModel) SelectedMessagePhotoID() int64    { return m.msgList.SelectedMessagePhotoID() }
+func (m *ChatModel) SelectedMessageReplyTarget() (domain.MessageTarget, bool) {
+	target, ok := m.msgList.SelectedMessageReplyTarget()
+	if !ok {
+		return domain.MessageTarget{}, false
+	}
+	if target.Peer.ID == 0 {
+		target.Peer = m.peer
+		target.Title = m.header.Title
+	}
+	return target, true
+}
+func (m *ChatModel) SelectedMessagePhotoID() int64 { return m.msgList.SelectedMessagePhotoID() }
 
 func (m *ChatModel) SelectedMessageComments() (bool, int, int64) {
 	return m.msgList.SelectedMessageComments()

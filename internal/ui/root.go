@@ -84,11 +84,14 @@ type RootModel struct {
 	// window move can repeat it. 0 is All Chats.
 	activeFolder  int
 	currentChatID int64
-	discussion    *discussionNav
 	historyLimit  int
 	verbose       bool
 	log           *zap.Logger
 	cfg           *config.Config
+
+	chatListChatID int64
+	pageHistory    []pageLocation
+	linkOpenSerial int
 	// reloadConfig re-reads the config file and hands the result to everything
 	// else holding one. Supplied by the app; nil in tests and wherever nothing
 	// can be reloaded, in which case the reload action reloads themes alone.
@@ -612,10 +615,11 @@ func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// still falls short.
 		m.chat.SetLoading(true)
 		m.chat.SetLoadError("")
-		m.subscribeChat(msg.chatID, domain.Peer{})
+		m.subscribeChat(msg.chatID, m.chat.CurrentPeer())
 		return m, nil
 	// network/data messages
 	case discussionOpenedMsg,
+		telegramLinkResolvedMsg,
 		screens.OpenChatMsg,
 		screens.LoadMoreMsg,
 		screens.LoadNewerMsg,

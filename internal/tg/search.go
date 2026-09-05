@@ -6,6 +6,7 @@ import (
 
 	"github.com/gotd/td/tg"
 	"github.com/sorokin-vladimir/tele/internal/domain"
+	"github.com/sorokin-vladimir/tele/internal/telerr"
 )
 
 // SearchContacts queries Telegram (contacts.search) for users matching q,
@@ -26,6 +27,81 @@ func (c *GotdClient) SearchContacts(ctx context.Context, q string, limit int) ([
 		c.cachePeer(ch.Peer)
 	}
 	return chats, nil
+}
+
+// ResolveUsername resolves one exact public username to a user, group or
+// channel with a usable peer/access hash.
+func (c *GotdClient) ResolveUsername(ctx context.Context, username string) (domain.Chat, error) {
+	api, err := c.acquireAPI()
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{
+		Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
+	})
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	if resolved == nil {
+		return domain.Chat{}, &telerr.Error{Kind: telerr.NotFound, Op: "resolve username", Detail: "empty response"}
+	}
+	chat, ok := resolvedChat(resolved.Peer, resolved.Users, resolved.Chats)
+	if !ok {
+		return domain.Chat{}, &telerr.Error{Kind: telerr.PeerNotFound, Op: "resolve username"}
+	}
+	c.cachePeer(chat.Peer)
+	return chat, nil
+}
+
+// ResolveChannel resolves the numeric channel id used by private t.me/c links.
+// Telegram accepts an access hash of zero for channels already known to the
+// current account, matching the official clients' private-link lookup.
+func (c *GotdClient) ResolveChannel(ctx context.Context, channelID int64) (domain.Chat, error) {
+	api, err := c.acquireAPI()
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	result, err := api.ChannelsGetChannels(ctx, []tg.InputChannelClass{
+		&tg.InputChannel{ChannelID: channelID},
+	})
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	var chats []tg.ChatClass
+	switch result := result.(type) {
+	case *tg.MessagesChats:
+		chats = result.Chats
+	case *tg.MessagesChatsSlice:
+		chats = result.Chats
+	}
+	chat, ok := resolvedChat(&tg.PeerChannel{ChannelID: channelID}, nil, chats)
+	if !ok {
+		return domain.Chat{}, &telerr.Error{Kind: telerr.PeerNotFound, Op: "resolve channel"}
+	}
+	c.cachePeer(chat.Peer)
+	return chat, nil
+}
+
+func resolvedChat(peer tg.PeerClass, users []tg.UserClass, chats []tg.ChatClass) (domain.Chat, bool) {
+	id := peerIDFromPeer(peer)
+	for _, raw := range users {
+		if user, ok := raw.(*tg.User); ok && user.ID == id {
+			return convertUser(user)
+		}
+	}
+	for _, raw := range chats {
+		switch chat := raw.(type) {
+		case *tg.Chat:
+			if chat.ID == id {
+				return convertGroupChat(chat)
+			}
+		case *tg.Channel:
+			if chat.ID == id {
+				return convertChannel(chat)
+			}
+		}
+	}
+	return domain.Chat{}, false
 }
 
 // usersFromContactsFound maps the user peers of a contacts.search response to

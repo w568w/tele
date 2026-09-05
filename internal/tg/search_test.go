@@ -49,3 +49,17 @@ func TestUsersFromContactsFound_RespectsLimit(t *testing.T) {
 		t.Fatalf("want 2 (limit), got %d", len(got))
 	}
 }
+
+func TestResolvedChat_MapsSupergroupAccessHash(t *testing.T) {
+	chat, ok := resolvedChat(
+		&tg.PeerChannel{ChannelID: 99},
+		nil,
+		[]tg.ChatClass{&tg.Channel{ID: 99, Title: "Group", AccessHash: 77, Megagroup: true}},
+	)
+	if !ok {
+		t.Fatal("resolvedChat returned ok=false")
+	}
+	if chat.ID != 99 || chat.Title != "Group" || !chat.Peer.IsSuperGroup() || chat.Peer.AccessHash != 77 {
+		t.Fatalf("unexpected chat: %+v", chat)
+	}
+}

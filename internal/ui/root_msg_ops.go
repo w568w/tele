@@ -135,14 +135,14 @@ func (m RootModel) handleSendMedia(msg screens.SendMediaRequest) (RootModel, tea
 }
 
 func (m RootModel) sendTarget(replyToMsgID int) (domain.Peer, int, int) {
-	if m.discussion == nil {
+	if !m.inThread() {
 		return m.chat.CurrentPeer(), replyToMsgID, 0
 	}
-	rootID := m.discussion.rootMsgID
+	rootID := m.chatWindow.ThreadRootID
 	if replyToMsgID == 0 {
 		replyToMsgID = rootID
 	}
-	return m.discussion.peer, replyToMsgID, rootID
+	return m.chatWindow.ThreadPeer, replyToMsgID, rootID
 }
 
 // handleUploadProgress moves a queued send's progress bar. It is an event, not
@@ -269,7 +269,7 @@ func (m RootModel) SetComposerValueForTest(s string) RootModel {
 // a message being edited, not a draft, and entering edit already discarded any
 // prior draft.
 func (m RootModel) flushCurrentDraftCmd() tea.Cmd {
-	if m.discussion != nil || m.st == nil || m.currentChatID == 0 || m.chat.EditMsgID() != 0 {
+	if m.inThread() || m.st == nil || m.currentChatID == 0 || m.chat.EditMsgID() != 0 {
 		return nil
 	}
 	chat, ok := m.st.GetChat(m.currentChatID)

@@ -251,10 +251,11 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	m.statusBar.SetMode(m.vimState.Mode)
 
-	// Esc in normal mode: close active chat and return to chatlist.
+	// Esc in normal mode returns through in-app navigation before closing the
+	// active chat and returning to the chat list.
 	if action == keys.ActionNormal && m.focus == FocusChat {
-		if m.discussion != nil {
-			return m.closeDiscussion()
+		if len(m.pageHistory) > 0 {
+			return m.popPage()
 		}
 		// Persist the draft of the chat being closed before tearing it down (#62).
 		draftFlush := m.flushCurrentDraftCmd()
@@ -263,6 +264,7 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.chat.SetMessages(nil)
 		m.chatMsgs = nil
 		m.currentChatID = 0
+		m.chatListChatID = 0
 		if m.owner != nil {
 			// The owner cannot see the screen: leaving a chat has to be reported
 			// as explicitly as entering one, or it stays silenced (#192).
@@ -332,6 +334,9 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				openTargets := m.chat.SelectedMessageOpenTargets()
 				senderID := m.chat.SelectedMessageSenderID()
 				m.contextMenu = components.NewContextMenu(msgID, isOut, senderID, replyToMsgID, mediaKind, hasMedia, hasText, openTargets, m.keyMap)
+				if target, ok := m.chat.SelectedMessageReplyTarget(); ok {
+					m.contextMenu.SetReplyTarget(target)
+				}
 				if hasComments, repliesCount, discussionChatID := m.chat.SelectedMessageComments(); hasComments {
 					m.contextMenu.SetComments(repliesCount, discussionChatID)
 				}
