@@ -300,6 +300,9 @@ type Message struct {
 	// grouped_id. 0 means the message is not part of an album.
 	GroupedID    int64
 	ReplyToMsgID int // 0 if not a reply
+	// ReplyTarget is set only when the replied-to message belongs to another
+	// chat. A nil target means ReplyToMsgID addresses this message's ChatID.
+	ReplyTarget *MessageTarget
 	// ThreadRootID identifies the discussion/thread this message belongs to.
 	// Zero means ordinary chat history. Direct replies to the root can omit it
 	// on the wire; thread projections also match ReplyToMsgID against the root.
@@ -324,6 +327,15 @@ type Message struct {
 	// LocalMedia describes the files of a queued media send. Set only on the
 	// bubble a client draws for an outbox entry; nil for real messages.
 	LocalMedia *LocalMedia
+}
+
+// MessageTarget identifies one message in a peer. MsgID is zero when the
+// target is the peer itself rather than a particular message.
+type MessageTarget struct {
+	ChatID int64
+	Peer   Peer
+	Title  string
+	MsgID  int
 }
 
 // Discussion is the resolved thread behind a channel post. Its messages are

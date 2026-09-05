@@ -55,6 +55,23 @@ func TestBuildChat_NewestAnchorTakesTheTail(t *testing.T) {
 	assert.False(t, got.HasNewer, "the newest message is in the window")
 }
 
+func TestBuildChat_UsesWindowMetadataForTransientPeer(t *testing.T) {
+	peer := domain.Peer{ID: 99, Type: domain.PeerSuperGroup, AccessHash: 7}
+	r := &fakeReader{msgs: map[int64][]domain.Message{
+		99: {{ID: 1, ChatID: 99, Date: time.Now()}},
+	}}
+
+	got := project.BuildChat(r, project.ChatWindow{
+		ChatID: 99, Peer: peer, Title: "Public group",
+		Anchor: project.Anchor{Kind: project.AnchorNewest},
+	})
+
+	assert.Equal(t, "Public group", got.Title)
+	assert.True(t, got.IsGroup)
+	require.Len(t, got.Messages, 1)
+	assert.Empty(t, project.BuildChatList(r, project.ChatListWindow{Limit: 10}).Rows)
+}
+
 func TestBuildChat_ThreadFiltersOtherGroupMessages(t *testing.T) {
 	chat := domain.Chat{ID: 1, Title: "Discussion", Peer: domain.Peer{ID: 1, Type: domain.PeerSuperGroup}}
 	messages := []domain.Message{

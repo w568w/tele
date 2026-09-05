@@ -41,7 +41,10 @@ type ChatContents struct {
 // fetches: a window that comes back shorter than it asked for is how the core
 // learns the store fell short (see Owner.needsBackfill).
 func BuildChat(r Reader, w ChatWindow) ChatContents {
-	out := ChatContents{ChatID: w.ChatID, ThreadRootID: w.ThreadRootID}
+	out := ChatContents{
+		ChatID: w.ChatID, Title: w.Title, ThreadRootID: w.ThreadRootID,
+		IsUser: w.Peer.IsUser(), IsGroup: w.Peer.IsGroup() || w.Peer.IsChannel(),
+	}
 	chat, ok := r.GetChat(w.ChatID)
 	if ok {
 		out.Title = chat.Title

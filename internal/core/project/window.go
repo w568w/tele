@@ -49,6 +49,8 @@ type Anchor struct {
 // of them: a window is at most Before+After+1 messages.
 type ChatWindow struct {
 	ChatID int64
+	Peer   domain.Peer
+	Title  string
 	Anchor Anchor
 	Before int
 	After  int

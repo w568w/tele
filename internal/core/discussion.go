@@ -10,7 +10,7 @@ import (
 // OpenDiscussion resolves a channel post to its linked-supergroup thread and
 // seeds that thread into the same message store used by chat projections.
 func (o *Owner) OpenDiscussion(ctx context.Context, sourceChatID int64, msgID int, discussionChatID int64) (domain.Discussion, error) {
-	source, ok := o.state.Store().GetChat(sourceChatID)
+	source, ok := o.reader().GetChat(sourceChatID)
 	if !ok {
 		return domain.Discussion{}, &telerr.Error{Kind: telerr.NotFound, Op: "open discussion", Detail: "source chat not found"}
 	}
@@ -18,6 +18,7 @@ func (o *Owner) OpenDiscussion(ctx context.Context, sourceChatID int64, msgID in
 	if err != nil {
 		return domain.Discussion{}, err
 	}
+	o.rememberTransientChat(discussion.Chat)
 	if existingChat, ok := o.state.Store().GetChat(discussion.Chat.ID); ok {
 		existingChat.Title = discussion.Chat.Title
 		existingChat.Peer = discussion.Chat.Peer

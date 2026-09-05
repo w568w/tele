@@ -50,6 +50,9 @@ func setupDispatcher(
 		if !ok {
 			return nil
 		}
+		applyExternalReplyTarget(&msg, raw, peerID, func(peer tg.PeerClass) domain.MessageTarget {
+			return messageTargetFromEntities(e, peer)
+		})
 		// Seed the name cache from every user entity this update carries, so a
 		// later update that omits a sender's User can still resolve the name (#161).
 		for id, user := range e.Users {
@@ -138,12 +141,15 @@ func setupDispatcher(
 	// Shared by UpdateEditMessage (users/basic groups) and UpdateEditChannelMessage
 	// (channels/supergroups). No sender-name enrichment: an edit only changes the
 	// message body, and the chat view re-renders from the already-stored sender.
-	handleEditMessage := func(ctx context.Context, raw tg.MessageClass) error {
+	handleEditMessage := func(ctx context.Context, e tg.Entities, raw tg.MessageClass) error {
 		peerID := extractPeerID(raw)
 		msg, ok := convertMessage(raw, peerID)
 		if !ok {
 			return nil
 		}
+		applyExternalReplyTarget(&msg, raw, peerID, func(peer tg.PeerClass) domain.MessageTarget {
+			return messageTargetFromEntities(e, peer)
+		})
 		log.Debug("dispatcher: edit message",
 			zap.Int64("chat_id", msg.ChatID), zap.Int("msg_id", msg.ID))
 		evt := store.Event{Kind: store.EventEditMessage, Message: msg}
@@ -160,11 +166,11 @@ func setupDispatcher(
 	}
 
 	dispatcher.OnEditMessage(func(ctx context.Context, e tg.Entities, upd *tg.UpdateEditMessage) error {
-		return handleEditMessage(ctx, upd.Message)
+		return handleEditMessage(ctx, e, upd.Message)
 	})
 
 	dispatcher.OnEditChannelMessage(func(ctx context.Context, e tg.Entities, upd *tg.UpdateEditChannelMessage) error {
-		return handleEditMessage(ctx, upd.Message)
+		return handleEditMessage(ctx, e, upd.Message)
 	})
 
 	dispatcher.OnReadHistoryInbox(func(ctx context.Context, e tg.Entities, upd *tg.UpdateReadHistoryInbox) error {

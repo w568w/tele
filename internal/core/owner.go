@@ -58,6 +58,9 @@ type Owner struct {
 	onAuthFn      func(userID int64, username string)
 	selfID        atomic.Int64
 
+	transientMu    sync.RWMutex
+	transientChats map[int64]domain.Chat
+
 	// ctx bounds the owner's background work (history backfill). It is stored
 	// rather than passed because that work is started by a subscription, which
 	// has no call context of its own and outlives it either way.
@@ -118,6 +121,7 @@ func New(cfg *config.Config, log *zap.Logger, st *state.State, client Connection
 		fetching:       make(map[project.SubID]bool),
 		pendingAnchors: make(map[project.SubID]project.ChatWindow),
 		desiredAnchors: make(map[project.SubID]project.ChatWindow),
+		transientChats: make(map[int64]domain.Chat),
 		focus:          newFocusRegistry(),
 		outboxWake:     make(chan struct{}, 1),
 		uploadCancels:  make(map[string]context.CancelFunc),
@@ -135,6 +139,32 @@ func New(cfg *config.Config, log *zap.Logger, st *state.State, client Connection
 	// originated: the update loop, a history backfill, or a command.
 	st.OnChange(o.publishChange)
 	return o
+}
+
+// rememberTransientChat makes a resolved peer addressable for this process
+// without adding it to the account's persisted dialog list.
+func (o *Owner) rememberTransientChat(chat domain.Chat) {
+	if chat.ID == 0 || chat.Peer.ID == 0 {
+		return
+	}
+	o.transientMu.Lock()
+	o.transientChats[chat.ID] = chat
+	o.transientMu.Unlock()
+}
+
+func (o *Owner) transientChat(chatID int64) (domain.Chat, bool) {
+	o.transientMu.RLock()
+	chat, ok := o.transientChats[chatID]
+	o.transientMu.RUnlock()
+	return chat, ok
+}
+
+func (o *Owner) rememberMessageTargets(msgs []domain.Message) {
+	for _, msg := range msgs {
+		if target := msg.ReplyTarget; target != nil {
+			o.rememberTransientChat(domain.Chat{ID: target.ChatID, Title: target.Title, Peer: target.Peer})
+		}
+	}
 }
 
 // SetContext bounds the owner's background work. Call before Start.

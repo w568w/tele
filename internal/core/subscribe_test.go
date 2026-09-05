@@ -31,6 +31,8 @@ type stubConn struct {
 	release   chan struct{}
 	replies   []domain.Message
 	replyPeer domain.Peer
+
+	refreshPeer domain.Peer
 }
 
 func (s *stubConn) Connect(context.Context, *config.Config, *internaltg.AuthFlow, chan<- struct{}, func(int64, string)) error {
@@ -74,7 +76,8 @@ func (s *stubConn) RefreshMessage(_ context.Context, _ domain.Peer, id int) (dom
 	return s.messages[id], nil
 }
 
-func (s *stubConn) RefreshMessages(_ context.Context, _ domain.Peer, ids []int) ([]domain.Message, error) {
+func (s *stubConn) RefreshMessages(_ context.Context, peer domain.Peer, ids []int) ([]domain.Message, error) {
+	s.refreshPeer = peer
 	out := make([]domain.Message, 0, len(ids))
 	for _, id := range ids {
 		if msg, ok := s.messages[id]; ok {
@@ -82,6 +85,26 @@ func (s *stubConn) RefreshMessages(_ context.Context, _ domain.Peer, ids []int) 
 		}
 	}
 	return out, nil
+}
+
+func TestHydrateReplyPreviews_UsesExternalReplyPeer(t *testing.T) {
+	targetPeer := domain.Peer{ID: 99, Type: domain.PeerSuperGroup, AccessHash: 7}
+	c := &stubConn{messages: map[int]domain.Message{
+		50: {ID: 50, ChatID: 99, SenderName: "Alice", Text: "original"},
+	}}
+	o, _ := newOwnerWithClient(t, c)
+	reply := domain.Message{
+		ID: 7, ChatID: 1, ReplyToMsgID: 50,
+		ReplyTarget: &domain.MessageTarget{ChatID: 99, Peer: targetPeer, Title: "Group", MsgID: 50},
+	}
+
+	got, changed, err := o.hydrateReplyPreviews(context.Background(), domain.Peer{ID: 1, Type: domain.PeerUser}, []domain.Message{reply}, []domain.Message{reply})
+
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, targetPeer, c.refreshPeer)
+	require.NotNil(t, got[0].ReplyPreview)
+	assert.Equal(t, "original", got[0].ReplyPreview.Text)
 }
 
 func newOwnerWithClient(t *testing.T, c Connection) (*Owner, *state.State) {

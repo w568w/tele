@@ -20,6 +20,19 @@ type projectionReader struct {
 	owner *Owner
 }
 
+// GetChat overlays peers resolved from links and cross-chat replies onto the
+// persisted dialogs. Chats() deliberately still comes from Store, so these
+// transient peers never acquire a chat-list row.
+func (r projectionReader) GetChat(chatID int64) (domain.Chat, bool) {
+	if chat, ok := r.Store.GetChat(chatID); ok {
+		return chat, true
+	}
+	if r.owner != nil {
+		return r.owner.transientChat(chatID)
+	}
+	return domain.Chat{}, false
+}
+
 // reader is the owner's own projection reader, for the places that build a
 // projection outside the registry.
 func (o *Owner) reader() projectionReader {

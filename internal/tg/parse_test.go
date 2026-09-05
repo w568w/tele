@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gotd/td/tg"
+	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,6 +96,31 @@ func TestPhotoSizes_ProgressiveCanBeTheFullResolution(t *testing.T) {
 	}
 	assert.Equal(t, "m", pickThumbSize(sizes))
 	assert.Equal(t, "y", pickFullThumbSize(sizes))
+}
+
+func TestParseHistory_PreservesExternalReplyPeer(t *testing.T) {
+	header := &tg.MessageReplyHeader{ReplyToMsgID: 50}
+	header.SetReplyToPeerID(&tg.PeerChannel{ChannelID: 99})
+	raw := &tg.MessagesMessages{
+		Messages: []tg.MessageClass{&tg.Message{
+			ID: 7, PeerID: &tg.PeerUser{UserID: 1271266957},
+			ReplyTo: header, Date: 1700000000, Message: "reply",
+		}},
+		Chats: []tg.ChatClass{&tg.Channel{
+			ID: 99, AccessHash: 123, Title: "Source group", Megagroup: true,
+		}},
+	}
+
+	msgs := parseHistory(raw, 1271266957)
+
+	require.Len(t, msgs, 1)
+	require.NotNil(t, msgs[0].ReplyTarget)
+	assert.Equal(t, domain.MessageTarget{
+		ChatID: 99,
+		Peer:   domain.Peer{ID: 99, Type: domain.PeerSuperGroup, AccessHash: 123},
+		Title:  "Source group",
+		MsgID:  50,
+	}, *msgs[0].ReplyTarget)
 }
 
 func TestConvertMessage_Mentioned(t *testing.T) {

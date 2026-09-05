@@ -103,10 +103,14 @@ func parseHistory(result tg.MessagesMessagesClass, chatID int64) []domain.Messag
 
 	nameMap := buildNameMap(rawUsers)
 	chatNameMap := buildChatNameMap(rawChats)
+	targetMap := buildMessageTargetMap(rawUsers, rawChats)
 
 	out := make([]domain.Message, 0, len(rawMsgs))
 	for _, raw := range rawMsgs {
 		if msg, ok := convertMessage(raw, chatID); ok {
+			applyExternalReplyTarget(&msg, raw, chatID, func(peer tg.PeerClass) domain.MessageTarget {
+				return targetMap[peerIDFromPeer(peer)]
+			})
 			msg.SenderName = nameMap[msg.SenderID]
 			if msg.SenderName == "" {
 				msg.SenderName = chatNameMap[msg.SenderID]
@@ -138,6 +142,90 @@ func parseHistory(result tg.MessagesMessagesClass, chatID int64) []domain.Messag
 		out[i], out[j] = out[j], out[i]
 	}
 	return out
+}
+
+func buildMessageTargetMap(users []tg.UserClass, chats []tg.ChatClass) map[int64]domain.MessageTarget {
+	targets := make(map[int64]domain.MessageTarget, len(users)+len(chats))
+	for _, raw := range users {
+		if user, ok := raw.(*tg.User); ok {
+			if chat, ok := convertUser(user); ok {
+				targets[chat.ID] = domain.MessageTarget{ChatID: chat.ID, Peer: chat.Peer, Title: chat.Title}
+			}
+		}
+	}
+	for _, raw := range chats {
+		var chat domain.Chat
+		var ok bool
+		switch raw := raw.(type) {
+		case *tg.Chat:
+			chat, ok = convertGroupChat(raw)
+		case *tg.Channel:
+			chat, ok = convertChannel(raw)
+		}
+		if ok {
+			targets[chat.ID] = domain.MessageTarget{ChatID: chat.ID, Peer: chat.Peer, Title: chat.Title}
+		}
+	}
+	return targets
+}
+
+func applyExternalReplyTarget(msg *domain.Message, raw tg.MessageClass, chatID int64, resolve func(tg.PeerClass) domain.MessageTarget) {
+	if msg == nil || msg.ReplyToMsgID == 0 {
+		return
+	}
+	var header *tg.MessageReplyHeader
+	switch raw := raw.(type) {
+	case *tg.Message:
+		header, _ = raw.ReplyTo.(*tg.MessageReplyHeader)
+	case *tg.MessageService:
+		header, _ = raw.ReplyTo.(*tg.MessageReplyHeader)
+	}
+	if header == nil {
+		return
+	}
+	peer, ok := header.GetReplyToPeerID()
+	if !ok || peerIDFromPeer(peer) == 0 || peerIDFromPeer(peer) == chatID {
+		return
+	}
+	target := resolve(peer)
+	if target.ChatID == 0 {
+		target.ChatID = peerIDFromPeer(peer)
+		target.Peer = domainPeer(peer)
+		target.Title = fmt.Sprintf("Chat %d", target.ChatID)
+	}
+	target.MsgID = msg.ReplyToMsgID
+	msg.ReplyTarget = &target
+}
+
+func domainPeer(peer tg.PeerClass) domain.Peer {
+	switch peer := peer.(type) {
+	case *tg.PeerUser:
+		return domain.Peer{ID: peer.UserID, Type: domain.PeerUser}
+	case *tg.PeerChat:
+		return domain.Peer{ID: peer.ChatID, Type: domain.PeerGroup}
+	case *tg.PeerChannel:
+		return domain.Peer{ID: peer.ChannelID, Type: domain.PeerChannel}
+	default:
+		return domain.Peer{}
+	}
+}
+
+func messageTargetFromEntities(entities tg.Entities, peer tg.PeerClass) domain.MessageTarget {
+	id := peerIDFromPeer(peer)
+	var chat domain.Chat
+	var ok bool
+	switch peer.(type) {
+	case *tg.PeerUser:
+		chat, ok = convertUser(entities.Users[id])
+	case *tg.PeerChat:
+		chat, ok = convertGroupChat(entities.Chats[id])
+	case *tg.PeerChannel:
+		chat, ok = convertChannel(entities.Channels[id])
+	}
+	if !ok {
+		return domain.MessageTarget{}
+	}
+	return domain.MessageTarget{ChatID: chat.ID, Peer: chat.Peer, Title: chat.Title}
 }
 
 // photoSizeDimensions returns the downloadable size's type and dimensions.

@@ -3,6 +3,7 @@ package core
 import (
 	"github.com/sorokin-vladimir/tele/internal/core/project"
 	"github.com/sorokin-vladimir/tele/internal/core/state"
+	"github.com/sorokin-vladimir/tele/internal/domain"
 )
 
 // projectionReader is what every projection is built from: the store plus the
@@ -110,6 +111,9 @@ func (o *Owner) publishChange(chg state.Change) {
 	// swap inside a single delta rather than across two, with a frame showing
 	// neither in between (#193).
 	if chg.Kind == state.ChangeNewMessage {
+		if target := chg.Message.ReplyTarget; target != nil {
+			o.rememberTransientChat(domain.Chat{ID: target.ChatID, Title: target.Title, Peer: target.Peer})
+		}
 		o.clearSentOutbox(chg.ChatID)
 		if chg.Message.ReplyToMsgID != 0 && chg.Message.ReplyPreview == nil {
 			go o.hydrateIncomingReply(chg.Message)

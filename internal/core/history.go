@@ -41,8 +41,10 @@ func (o *Owner) windowPeer(w project.ChatWindow) (domain.Peer, bool) {
 	if w.ThreadRootID != 0 && w.ThreadPeer.ID != 0 {
 		return w.ThreadPeer, true
 	}
-	chat, ok := o.state.Store().GetChat(w.ChatID)
-	return chat.Peer, ok
+	if chat, ok := o.reader().GetChat(w.ChatID); ok {
+		return chat.Peer, true
+	}
+	return w.Peer, w.Peer.ID != 0
 }
 
 // backfill fetches older history for a chat subscription whose window the store
@@ -123,6 +125,7 @@ func (o *Owner) backfill(ctx context.Context, id project.SubID, w project.ChatWi
 	}
 
 	var previewChanged bool
+	o.rememberMessageTargets(candidates)
 	merged, previewChanged, err := o.hydrateReplyPreviews(ctx, peer, merged, candidates)
 	if err != nil {
 		o.log.Warn("reply preview backfill failed", zap.Int64("chat", w.ChatID), zap.Error(err))
@@ -450,44 +453,67 @@ func oldestThreadReplyID(msgs []domain.Message, rootID int) int {
 
 func needsReplyPreviews(msgs []domain.Message) bool {
 	for _, msg := range msgs {
-		if msg.ReplyToMsgID != 0 && msg.ReplyPreview == nil && !hasMessage(msgs, msg.ReplyToMsgID) {
+		if msg.ReplyToMsgID != 0 && msg.ReplyPreview == nil &&
+			(msg.ReplyTarget != nil || !hasMessage(msgs, msg.ReplyToMsgID)) {
 			return true
 		}
 	}
 	return false
 }
 
+type messageKey struct {
+	chatID int64
+	msgID  int
+}
+
+func replyLookup(msg domain.Message, currentPeer domain.Peer) (messageKey, domain.Peer) {
+	if target := msg.ReplyTarget; target != nil {
+		return messageKey{chatID: target.ChatID, msgID: target.MsgID}, target.Peer
+	}
+	return messageKey{chatID: msg.ChatID, msgID: msg.ReplyToMsgID}, currentPeer
+}
+
 // hydrateReplyPreviews resolves only the originals referenced by candidates.
 // The originals are not inserted into history: doing so would turn two distant
 // ranges into one apparently contiguous range and break paging.
 func (o *Owner) hydrateReplyPreviews(ctx context.Context, peer domain.Peer, all, candidates []domain.Message) ([]domain.Message, bool, error) {
-	originals := make(map[int]domain.Message, len(all))
+	originals := make(map[messageKey]domain.Message, len(all))
 	for _, msg := range all {
-		originals[msg.ID] = msg
+		originals[messageKey{chatID: msg.ChatID, msgID: msg.ID}] = msg
 	}
 	candidateIDs := make(map[int]struct{}, len(candidates))
-	missing := make(map[int]struct{})
+	missing := make(map[domain.Peer]map[int]struct{})
 	for _, msg := range candidates {
 		candidateIDs[msg.ID] = struct{}{}
 		if msg.ReplyToMsgID == 0 || msg.ReplyPreview != nil {
 			continue
 		}
-		if _, ok := originals[msg.ReplyToMsgID]; !ok {
-			missing[msg.ReplyToMsgID] = struct{}{}
+		key, targetPeer := replyLookup(msg, peer)
+		if _, ok := originals[key]; ok || targetPeer.ID == 0 {
+			continue
 		}
+		if missing[targetPeer] == nil {
+			missing[targetPeer] = make(map[int]struct{})
+		}
+		missing[targetPeer][key.msgID] = struct{}{}
 	}
 
-	ids := make([]int, 0, len(missing))
-	for id := range missing {
-		ids = append(ids, id)
-	}
-	sort.Ints(ids)
 	var fetchErr error
-	if len(ids) > 0 {
-		var fetched []domain.Message
-		fetched, fetchErr = o.client.RefreshMessages(ctx, peer, ids)
+	for targetPeer, set := range missing {
+		ids := make([]int, 0, len(set))
+		for id := range set {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+		fetched, err := o.client.RefreshMessages(ctx, targetPeer, ids)
+		if err != nil {
+			if fetchErr == nil {
+				fetchErr = err
+			}
+			continue
+		}
 		for _, msg := range fetched {
-			originals[msg.ID] = msg
+			originals[messageKey{chatID: targetPeer.ID, msgID: msg.ID}] = msg
 		}
 	}
 
@@ -496,7 +522,8 @@ func (o *Owner) hydrateReplyPreviews(ctx context.Context, peer domain.Peer, all,
 		if _, ok := candidateIDs[all[i].ID]; !ok || all[i].ReplyPreview != nil {
 			continue
 		}
-		original, ok := originals[all[i].ReplyToMsgID]
+		key, _ := replyLookup(all[i], peer)
+		original, ok := originals[key]
 		if !ok {
 			continue
 		}
@@ -518,22 +545,26 @@ func (o *Owner) hydrateIncomingReply(msg domain.Message) {
 	}
 	var original domain.Message
 	found := false
-	for _, stored := range o.state.Store().Messages(msg.ChatID) {
-		if stored.ID == msg.ReplyToMsgID {
+	targetKey, targetPeer := replyLookup(msg, domain.Peer{})
+	if targetPeer.ID == 0 {
+		chat, ok := o.reader().GetChat(msg.ChatID)
+		if !ok {
+			return
+		}
+		targetPeer = chat.Peer
+	}
+	for _, stored := range o.state.Store().Messages(targetKey.chatID) {
+		if stored.ID == targetKey.msgID {
 			original, found = stored, true
 			break
 		}
 	}
 	if !found {
-		chat, ok := o.state.Store().GetChat(msg.ChatID)
-		if !ok {
-			return
-		}
 		var err error
-		original, err = o.client.RefreshMessage(o.ctx, chat.Peer, msg.ReplyToMsgID)
+		original, err = o.client.RefreshMessage(o.ctx, targetPeer, targetKey.msgID)
 		if err != nil {
 			o.log.Warn("reply preview fetch failed",
-				zap.Int64("chat", msg.ChatID), zap.Int("msg_id", msg.ReplyToMsgID), zap.Error(err))
+				zap.Int64("chat", targetKey.chatID), zap.Int("msg_id", targetKey.msgID), zap.Error(err))
 			return
 		}
 	}

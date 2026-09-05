@@ -12,7 +12,14 @@ import (
 // projection: the result is a one-off answer nobody subscribes to. No chat ID
 // is involved because the point is finding chats the owner may not hold.
 func (o *Owner) SearchContacts(ctx context.Context, q string, limit int) ([]domain.Chat, error) {
-	return o.client.SearchContacts(ctx, q, limit)
+	chats, err := o.client.SearchContacts(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	for _, chat := range chats {
+		o.rememberTransientChat(chat)
+	}
+	return chats, nil
 }
 
 // GetParticipants returns mention candidates for a group or channel.
