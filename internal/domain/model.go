@@ -319,6 +319,7 @@ type Message struct {
 	// HasUnreadReactions is true when the raw message carried at least one recent
 	// reaction flagged unread (a not-yet-viewed reaction on one of our messages).
 	HasUnreadReactions bool
+	MediaUnread        bool
 	// Mentioned is the raw message `mentioned` flag: the message mentions us
 	// (@username, or a reply to one of our messages). Drives the chat-list
 	// unread-mention indicator when the message is incoming and unread (#155).

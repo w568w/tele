@@ -89,7 +89,7 @@ func (m RootModel) View() tea.View {
 			chatSB := &components.Scrollbar{Info: m.chat.ScrollInfo(), TrackTop: 0, TrackLen: m.chat.MessageListHeight()}
 			foldersView := components.RenderBox(m.folderBar.View(), "[0] Folders", "", "", "", foldersBorder, foldersFg, sidebarW, innerH, foldersSB)
 			chatListView := components.RenderBox(m.chatList.View(), chatListTitle, "", "", "", chatListBorder, chatListFg, chatlistW, innerH, chatListSB)
-			chatView := components.RenderBox(m.chat.View(), chatTitle, chatDot, "", "", chatBorder, chatFg, chatW, innerH, chatSB)
+			chatView := components.RenderBox(m.chat.View(), m.importantTitle(chatTitle, chatW), chatDot, "", "", chatBorder, chatFg, chatW, innerH, chatSB)
 			main = joinPanes(foldersView, chatListView, chatView)
 			chatPanelLeft = sidebarW + chatlistW
 			chatBoxW = chatW
@@ -102,7 +102,7 @@ func (m RootModel) View() tea.View {
 			chatListSB := &components.Scrollbar{Info: m.chatList.ScrollInfo(), TrackTop: 0, TrackLen: innerH}
 			chatSB := &components.Scrollbar{Info: m.chat.ScrollInfo(), TrackTop: 0, TrackLen: m.chat.MessageListHeight()}
 			chatListView := components.RenderBox(m.chatList.View(), chatListTitle, "", "", "", chatListBorder, chatListFg, chatListWidth, innerH, chatListSB)
-			chatView := components.RenderBox(m.chat.View(), chatTitle, chatDot, "", "", chatBorder, chatFg, chatWidth, innerH, chatSB)
+			chatView := components.RenderBox(m.chat.View(), m.importantTitle(chatTitle, chatWidth), chatDot, "", "", chatBorder, chatFg, chatWidth, innerH, chatSB)
 			main = joinPanes(chatListView, chatView)
 			chatPanelLeft = chatListWidth
 			chatBoxW = chatWidth

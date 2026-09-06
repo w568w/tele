@@ -279,6 +279,11 @@ func (m RootModel) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return result, tea.Batch(draftFlush, cmd)
 	}
 
+	if action == keys.ActionPreviousImportant && m.focus == FocusChat {
+		cmd := m.previousImportant()
+		return m, cmd
+	}
+
 	// ActionOpenInViewer (o) opens the message's content. A message can hold
 	// several openable targets (media plus links): one opens directly, several
 	// present a picker. Media opens in the in-app modal (external-player fallback

@@ -40,9 +40,11 @@ func (m RootModel) updateUIMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 	// when the window regains focus, so a theme change made while away is
 	// reflected (issue #148).
 	case tea.FocusMsg:
+		m.terminalBlurred = false
 		m.updateInputMethod(true)
 		return m, requestBGColorCmd()
 	case tea.BlurMsg:
+		m.terminalBlurred = true
 		m.updateInputMethod(false)
 		return m, nil
 

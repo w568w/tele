@@ -16,7 +16,7 @@ func ApplyIncomingMessage(s Store, msg domain.Message) bool {
 		return false
 	}
 	changed := s.ApplyUnreadMessage(msg.ChatID, msg.ID)
-	if msg.Mentioned && s.ApplyUnreadMention(msg.ChatID, msg.ID, true) {
+	if msg.Mentioned && msg.MediaUnread && s.ApplyUnreadMention(msg.ChatID, msg.ID, true) {
 		changed = true
 	}
 	return changed

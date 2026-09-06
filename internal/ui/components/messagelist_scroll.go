@@ -77,22 +77,26 @@ func (ml *MessageList) ScrollUpBy(n int) {
 // the remaining parts unread forever: the server's read_inbox_max_id would stop at the
 // anchor, and the item can never be scrolled past to bump it (issue: album never read).
 func (ml *MessageList) VisibleReadMaxID() int {
-	if ml.viewWidth <= 0 || ml.viewHeight <= 0 || len(ml.items) == 0 {
-		return 0
-	}
 	maxID := 0
+	for _, id := range ml.VisibleReadIDs() {
+		maxID = max(maxID, id)
+	}
+	return maxID
+}
+
+// VisibleReadIDs uses the same visibility threshold as the ordinary read
+// pointer, but keeps individual IDs so off-screen important items stay unread.
+func (ml *MessageList) VisibleReadIDs() []int {
+	if ml.viewWidth <= 0 || ml.viewHeight <= 0 || len(ml.items) == 0 {
+		return nil
+	}
+	var ids []int
 	linesUsed := 0
 	for i := ml.viewStart; i < len(ml.items) && linesUsed < ml.viewHeight; i++ {
 		h := ml.itemHeight(i)
 		if ml.items[i].kind != itemMessage {
 			linesUsed += h
 			continue
-		}
-		itemMaxID := ml.items[i].msg.ID
-		for _, p := range ml.items[i].parts {
-			if p.ID > itemMaxID {
-				itemMaxID = p.ID
-			}
 		}
 		skipped := 0
 		if i == ml.viewStart {
@@ -104,13 +108,16 @@ func (ml *MessageList) VisibleReadMaxID() int {
 			visibleLines = remaining
 		}
 		if visibleLines > 0 && (visibleLines*2 > h || h >= ml.viewHeight) {
-			if itemMaxID > maxID {
-				maxID = itemMaxID
+			if len(ml.items[i].parts) == 0 {
+				ids = append(ids, ml.items[i].msg.ID)
+			}
+			for _, p := range ml.items[i].parts {
+				ids = append(ids, p.ID)
 			}
 		}
 		linesUsed += visibleLines
 	}
-	return maxID
+	return ids
 }
 
 // ScrollToFirstUnread positions the viewport at the first message with ID > readMaxID.

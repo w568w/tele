@@ -53,6 +53,8 @@ const (
 	ActionCopyMessage     Action = "copy_message"
 	ActionPasteImage      Action = "paste_image"
 
+	ActionPreviousImportant Action = "previous_important"
+
 	ActionOpenDiscussion   Action = "open_discussion"
 	ActionSaveToSaved      Action = "save_to_saved_messages"
 	ActionChooseSticker    Action = "choose_sticker"

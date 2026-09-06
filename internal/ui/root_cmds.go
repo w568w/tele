@@ -42,35 +42,6 @@ func (m RootModel) markReadCmd() tea.Cmd {
 	}
 }
 
-// readReactionsCmd tells the owner to mark this chat's reactions read. The
-// owner clears the badge itself once Telegram confirms.
-func (m RootModel) readReactionsCmd(chatID int64) tea.Cmd {
-	if m.owner == nil {
-		return nil
-	}
-	ctx, owner := m.ctx, m.owner
-	return func() tea.Msg {
-		if err := owner.ReadReactions(ctx, chatID); err != nil {
-			return errStatusBackground("read reactions", err)
-		}
-		return nil
-	}
-}
-
-// readMentionsCmd tells the owner to mark this chat's mentions read.
-func (m RootModel) readMentionsCmd(chatID int64) tea.Cmd {
-	if m.owner == nil {
-		return nil
-	}
-	ctx, owner := m.ctx, m.owner
-	return func() tea.Msg {
-		if err := owner.ReadMentions(ctx, chatID); err != nil {
-			return errStatusBackground("read mentions", err)
-		}
-		return nil
-	}
-}
-
 func logoTickCmd() tea.Cmd {
 	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg {
 		return components.LogoTickMsg{}

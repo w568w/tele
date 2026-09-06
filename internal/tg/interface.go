@@ -125,6 +125,11 @@ type LinkResolver interface {
 	ResolveChannel(ctx context.Context, channelID int64) (domain.Chat, error)
 }
 
+type ImportantClient interface {
+	GetUnreadImportant(ctx context.Context, peer domain.Peer, kind domain.ImportantKind, offsetID int) (domain.UnreadPage, error)
+	ReadImportantContents(ctx context.Context, peer domain.Peer, ids []int) error
+}
+
 // MessageOptionsClient is the optional send/edit surface for flags that most
 // callers never need. Keeping it separate avoids making every Client test
 // double implement variants of the ordinary message methods.

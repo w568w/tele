@@ -61,6 +61,9 @@ type Owner struct {
 	transientMu    sync.RWMutex
 	transientChats map[int64]domain.Chat
 
+	importantMu sync.Mutex
+	important   map[int64]*importantIndex
+
 	// ctx bounds the owner's background work (history backfill). It is stored
 	// rather than passed because that work is started by a subscription, which
 	// has no call context of its own and outlives it either way.

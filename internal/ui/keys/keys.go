@@ -89,6 +89,7 @@ func DefaultKeyMap() KeyMap {
 		// ContextChat is the live source for chat-pane keys, resolved through
 		// the Matcher. "g g" is a chord (space-separated key tokens).
 		ContextChat: {
+			"[":      ActionPreviousImportant,
 			"j":      ActionCursorDown,
 			"k":      ActionCursorUp,
 			"down":   ActionDown,

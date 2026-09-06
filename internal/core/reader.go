@@ -25,12 +25,33 @@ type projectionReader struct {
 // transient peers never acquire a chat-list row.
 func (r projectionReader) GetChat(chatID int64) (domain.Chat, bool) {
 	if chat, ok := r.Store.GetChat(chatID); ok {
+		counts := r.ImportantUnread(chatID, 0)
+		if counts.Revision != 0 && !counts.Loading && !counts.Failed {
+			chat.UnreadMentionsCount, chat.UnreadReactionsCount = counts.Mentions, counts.Reactions
+		}
 		return chat, true
 	}
 	if r.owner != nil {
 		return r.owner.transientChat(chatID)
 	}
 	return domain.Chat{}, false
+}
+
+func (r projectionReader) ImportantUnread(chatID int64, rootID int) domain.ImportantUnread {
+	if r.owner == nil {
+		return domain.ImportantUnread{}
+	}
+	return r.owner.ImportantUnread(chatID, rootID)
+}
+
+func (r projectionReader) Chats() []domain.Chat {
+	chats := r.Store.Chats()
+	for i := range chats {
+		if chat, ok := r.GetChat(chats[i].ID); ok {
+			chats[i] = chat
+		}
+	}
+	return chats
 }
 
 // reader is the owner's own projection reader, for the places that build a

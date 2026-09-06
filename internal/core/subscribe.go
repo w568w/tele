@@ -29,6 +29,9 @@ func (o *Owner) Subscribe(w project.Window) project.SubID {
 	o.publish(deltas)
 	o.projectionMu.Unlock()
 	o.maybeBackfill(id, w)
+	if cw, ok := w.(project.ChatWindow); ok {
+		go func() { _ = o.RefreshImportant(o.ctx, cw.ChatID) }()
+	}
 	return id
 }
 

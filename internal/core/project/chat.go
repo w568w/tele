@@ -10,6 +10,7 @@ type ChatContents struct {
 	IsUser bool
 
 	ThreadRootID int
+	Important    domain.ImportantUnread
 	// IsGroup covers groups and channels: the message list shows sender names
 	// there and not in a 1:1 chat.
 	IsGroup         bool
@@ -46,6 +47,11 @@ func BuildChat(r Reader, w ChatWindow) ChatContents {
 		IsUser: w.Peer.IsUser(), IsGroup: w.Peer.IsGroup() || w.Peer.IsChannel(),
 	}
 	chat, ok := r.GetChat(w.ChatID)
+	if important, ok := r.(interface {
+		ImportantUnread(int64, int) domain.ImportantUnread
+	}); ok {
+		out.Important = important.ImportantUnread(w.ChatID, w.ThreadRootID)
+	}
 	if ok {
 		out.Title = chat.Title
 		out.IsUser = chat.Peer.IsUser()

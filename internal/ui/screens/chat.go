@@ -281,6 +281,7 @@ func (m *ChatModel) ScrollToFirstUnread(readMaxID int) bool {
 	return m.msgList.ScrollToFirstUnread(readMaxID)
 }
 func (m *ChatModel) VisibleReadMaxID() int { return m.msgList.VisibleReadMaxID() }
+func (m *ChatModel) VisibleReadIDs() []int { return m.msgList.VisibleReadIDs() }
 func (m *ChatModel) ComposerFocused() bool { return m.composerFocused }
 func (m *ChatModel) ComposerValue() string { return m.composer.Value() }
 func (m *ChatModel) ComposerHeight() int   { return m.composer.VisualHeight() }

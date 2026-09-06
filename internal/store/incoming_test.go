@@ -38,7 +38,7 @@ func TestApplyIncomingMessage_CountsMention(t *testing.T) {
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1})
 
-	assert.True(t, store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, Mentioned: true}))
+	assert.True(t, store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, Mentioned: true, MediaUnread: true}))
 
 	c, _ := s.GetChat(1)
 	assert.Equal(t, 1, c.UnreadCount)
@@ -63,7 +63,7 @@ func TestApplyIncomingMessage_ReadElsewhereAppendsAndReportsNoChange(t *testing.
 func TestApplyIncomingMessage_ReplayCountsOnce(t *testing.T) {
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1})
-	msg := domain.Message{ID: 5, ChatID: 1, Mentioned: true}
+	msg := domain.Message{ID: 5, ChatID: 1, Mentioned: true, MediaUnread: true}
 
 	require.True(t, store.ApplyIncomingMessage(s, msg))
 	assert.False(t, store.ApplyIncomingMessage(s, msg))

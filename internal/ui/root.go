@@ -76,10 +76,13 @@ type RootModel struct {
 	// pendingJumpMsgID is cleared when an AnchorMessage reset arrives with the
 	// requested message, at which point the pane selects and highlights it.
 	pendingJumpMsgID int
-	// chatUnreadReactions is the open chat's unread-reaction count, from the
-	// projection. Kept so focusing the pane can mark them read: a reaction that
-	// arrived while you were elsewhere is only seen when you look.
-	chatUnreadReactions int
+	importantUnread  domain.ImportantUnread
+	importantTimer   bool
+	importantReading bool
+	importantJumping bool
+	importantRetryAt time.Time
+	importantSeen    string
+	terminalBlurred  bool
 	// activeFolder is the folder the chatlist window is filtered by, kept so a
 	// window move can repeat it. 0 is All Chats.
 	activeFolder  int
@@ -467,11 +470,42 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if acmd := (&rm).ensureAnimationTicks(); acmd != nil {
 		cmd = tea.Batch(cmd, acmd)
 	}
+	if _, tick := msg.(importantVisibleMsg); !tick {
+		if visible := (&rm).importantVisibleTick(); visible != nil {
+			cmd = tea.Batch(cmd, visible)
+		}
+	}
 	return rm, cmd
 }
 
 func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case importantPollMsg:
+		return m.pollImportant(msg)
+	case importantVisibleMsg:
+		return m.readVisibleImportant(msg)
+	case importantReadDoneMsg:
+		if msg.sub == m.chatSub {
+			m.importantReading = false
+			if msg.err != nil {
+				m.importantSeen = ""
+				m.importantRetryAt = time.Now().Add(5 * time.Second)
+			}
+		}
+		return m, nil
+	case previousImportantMsg:
+		if msg.sub != m.chatSub {
+			return m, nil
+		}
+		m.importantJumping = false
+		if msg.err != nil {
+			return m, func() tea.Msg { return errStatus("find unread", msg.err) }
+		}
+		if msg.id == 0 {
+			m.statusBar.SetStatus("No important unread messages")
+			return m, nil
+		}
+		return m.jumpWithinPage(msg.id)
 	case noticeTickMsg:
 		if !m.noticeActive() {
 			return m, nil

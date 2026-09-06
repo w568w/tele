@@ -60,6 +60,8 @@ var defaultLabels = map[Action]Label{
 	ActionShowSettings:  {Short: "settings", Long: "what tele can be configured with"},
 	ActionReloadConfig:  {Short: "reload", Long: "re-read the config and theme files"},
 	ActionReloadThemes:  {Short: "reload", Long: "re-read the config and theme files"},
+
+	ActionPreviousImportant: {Short: "important unread", Long: "previous important unread message (wraps)"},
 	// Chat / message actions.
 	ActionSearch:          {Short: "search"},
 	ActionOpenContextMenu: {Short: "menu"},

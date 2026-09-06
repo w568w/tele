@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sorokin-vladimir/tele/internal/core/project"
@@ -56,6 +58,11 @@ func (m RootModel) activatePage(window project.ChatWindow, chatListChatID int64,
 		return m, nil
 	}
 	m.linkOpenSerial++
+	m.importantUnread = domain.ImportantUnread{Loading: true}
+	m.importantTimer, m.importantReading = false, false
+	m.importantJumping = false
+	m.importantRetryAt = time.Time{}
+	m.importantSeen = ""
 	draftFlush := m.flushCurrentDraftCmd()
 	if push && m.currentChatID != 0 {
 		m.pageHistory = append(m.pageHistory, m.snapshotPage())
@@ -103,7 +110,7 @@ func (m RootModel) activatePage(window project.ChatWindow, chatListChatID int64,
 		m.chatSub = m.owner.Subscribe(window)
 	}
 	m.requestKittyReset()
-	return m, draftFlush
+	return m, tea.Batch(draftFlush, m.importantPollTick())
 }
 
 func (m RootModel) navigateToMessage(target domain.MessageTarget, push bool) (RootModel, tea.Cmd) {
@@ -123,8 +130,7 @@ func (m RootModel) navigateToMessage(target domain.MessageTarget, push bool) (Ro
 		window.Anchor = project.Anchor{Kind: project.AnchorNewest}
 	}
 	m, cmd := m.activatePage(window, target.ChatID, target.MsgID, push)
-	reactions, mentions := m.clearChatBadgesOnOpen(target.ChatID)
-	return m, tea.Batch(cmd, reactions, mentions)
+	return m, cmd
 }
 
 func (m RootModel) jumpWithinPage(msgID int) (RootModel, tea.Cmd) {

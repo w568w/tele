@@ -43,8 +43,7 @@ func (m RootModel) updateNetworkMsg(msg tea.Msg) (RootModel, tea.Cmd) {
 			Before: m.historyLimit,
 		}
 		m, draftFlush := m.activatePage(window, msg.ChatID, 0, false)
-		reactionsCmd, mentionsCmd := m.clearChatBadgesOnOpen(msg.ChatID)
-		return m, tea.Batch(draftFlush, reactionsCmd, mentionsCmd)
+		return m, draftFlush
 
 	case screens.LoadMoreMsg:
 		// Reaching the top of the window asks the owner to widen it. Whether the

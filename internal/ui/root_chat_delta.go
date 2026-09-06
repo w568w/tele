@@ -92,9 +92,7 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 				m.chat.SetLoading(true)
 			}
 		}
-		if cmd := m.readReactionsOnScreen(c); cmd != nil {
-			return m, tea.Batch(cmd, jumpCmd)
-		}
+		m.importantUnread = c.Important
 		// The window was anchored on the first unread: it already opens on that
 		// message, so scrolling to it again would fight the anchor. Only the
 		// scroll is skipped. Returning early here instead also skipped the media
@@ -125,10 +123,8 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 			Online:          c.Online,
 			ReadOutboxMaxID: c.ReadOutboxMaxID,
 		})
-		// Assigned first: the call records the count on the model, and a return
-		// statement gives no guarantee that m is read after it.
-		cmd := m.readReactionsOnScreen(c)
-		return m, cmd
+		m.importantUnread = c.Important
+		return m, nil
 
 	case project.ChatOlder:
 		if len(d.Messages) == 0 {
@@ -153,9 +149,6 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		// yank you out of it.
 		m.chat.SetMessagesKeepScroll(m.chatMsgs)
 		cmds := []tea.Cmd{m.markReadCmd(), m.pendingDownloadCmds([]domain.Message{d.Message})}
-		if !m.inThread() && m.focus == FocusChat && d.Message.Mentioned {
-			cmds = append(cmds, m.readMentionsCmd(m.currentChatID))
-		}
 		return m, tea.Batch(cmds...)
 
 	case project.ChatUpdate:
@@ -174,9 +167,6 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 		// preview stays blank until the window happens to move. Media already
 		// cached costs nothing here.
 		cmds := []tea.Cmd{m.pendingDownloadCmds([]domain.Message{d.Message})}
-		if m.focus == FocusChat && d.Message.HasUnreadReactions {
-			cmds = append(cmds, m.readReactionsCmd(m.currentChatID))
-		}
 		return m, tea.Batch(cmds...)
 
 	case project.ChatRemove:
@@ -213,21 +203,6 @@ func (m RootModel) handleChatDelta(d *project.ChatDelta) (RootModel, tea.Cmd) {
 	return m, nil
 }
 
-// readReactionsOnScreen marks a chat's reactions read when the user is looking
-// at it. The count is per-chat state, so the message the reaction landed on need
-// not be in the window (#199).
-func (m *RootModel) readReactionsOnScreen(c project.ChatContents) tea.Cmd {
-	if c.ThreadRootID != 0 {
-		m.chatUnreadReactions = 0
-		return nil
-	}
-	m.chatUnreadReactions = c.UnreadReactions
-	if m.focus != FocusChat || c.UnreadReactions == 0 {
-		return nil
-	}
-	return m.readReactionsCmd(c.ChatID)
-}
-
 // handleTyping shows a composing indicator and arms its expiry. The owner sends
 // no state to clear, so the client's own timeout is what ends it.
 func (m RootModel) handleTyping(t core.Typing) (RootModel, tea.Cmd) {
@@ -255,28 +230,4 @@ func (m RootModel) applyTypingLabelCmd(label string) (RootModel, tea.Cmd) {
 		cmds = append(cmds, typingDotsTickCmd())
 	}
 	return m, tea.Batch(cmds...)
-}
-
-// clearChatBadgesOnOpen optimistically clears a chat's unread reactions and
-// mentions when it is opened, and returns the commands that reconcile that with
-// the server.
-//
-// The commands clear the badges themselves, before their request goes out, so
-// the indicators drop as soon as the chat is open and every attached client
-// sees it (#198).
-func (m RootModel) clearChatBadgesOnOpen(chatID int64) (reactions, mentions tea.Cmd) {
-	if m.st == nil {
-		return nil, nil
-	}
-	c, ok := m.st.GetChat(chatID)
-	if !ok {
-		return nil, nil
-	}
-	if c.UnreadReactionsCount > 0 {
-		reactions = m.readReactionsCmd(c.ID)
-	}
-	if c.UnreadMentionsCount > 0 {
-		mentions = m.readMentionsCmd(c.ID)
-	}
-	return reactions, mentions
 }

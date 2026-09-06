@@ -25,6 +25,7 @@ const (
 	// EventDraftMessage reports that a chat's draft changed server-side (e.g.
 	// edited on another device, or cleared on send). The text is in Event.Draft.
 	EventDraftMessage
+	EventReadContents
 )
 
 type Event struct {
@@ -38,6 +39,7 @@ type Event struct {
 	// ReactionsUnread reports that an EventReactionsUpdate carries at least one
 	// unread recent reaction (from UpdateMessageReactions).
 	ReactionsUnread bool
+	ThreadRootID    int
 	// ReactionEmoji is the emoji of the newest unread reaction (for notifications);
 	// empty for a custom-emoji reaction. ReactionDate is when that reaction was
 	// added, used to suppress stale catch-up reactions after an idle reconnect.

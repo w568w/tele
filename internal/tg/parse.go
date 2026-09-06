@@ -388,6 +388,7 @@ func convertMessage(raw tg.MessageClass, chatID int64) (domain.Message, bool) {
 	}
 	_, out.HasWebPreview = msg.Media.(*tg.MessageMediaWebPage)
 	out.Mentioned = msg.Mentioned
+	out.MediaUnread = msg.MediaUnread
 	out.GroupedID = msg.GroupedID
 	out.Media = classifyMedia(msg.Media)
 	if hdr, ok := msg.ReplyTo.(*tg.MessageReplyHeader); ok {
@@ -452,6 +453,7 @@ func convertServiceMessage(msg *tg.MessageService, chatID int64) domain.Message 
 		IsService: true,
 		Mentioned: msg.Mentioned,
 	}
+	out.MediaUnread = msg.MediaUnread
 	if hdr, ok := msg.ReplyTo.(*tg.MessageReplyHeader); ok {
 		out.ReplyToMsgID = hdr.ReplyToMsgID
 		out.ThreadRootID = hdr.ReplyToTopID

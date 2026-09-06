@@ -209,7 +209,23 @@ func setupDispatcher(
 			ReactionsUnread: reactionsHaveUnread(upd.Reactions),
 			ReactionEmoji:   emoji,
 			ReactionDate:    date,
+			ThreadRootID:    upd.TopMsgID,
 		}:
+		case <-ctx.Done():
+		}
+		return nil
+	})
+
+	dispatcher.OnReadMessagesContents(func(ctx context.Context, e tg.Entities, upd *tg.UpdateReadMessagesContents) error {
+		select {
+		case mustDeliver <- store.Event{Kind: store.EventReadContents, MsgIDs: upd.Messages}:
+		case <-ctx.Done():
+		}
+		return nil
+	})
+	dispatcher.OnChannelReadMessagesContents(func(ctx context.Context, e tg.Entities, upd *tg.UpdateChannelReadMessagesContents) error {
+		select {
+		case mustDeliver <- store.Event{Kind: store.EventReadContents, ChatID: upd.ChannelID, MsgIDs: upd.Messages}:
 		case <-ctx.Done():
 		}
 		return nil

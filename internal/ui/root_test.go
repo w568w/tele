@@ -1503,7 +1503,7 @@ func TestRoot_EditWithReaction_BumpsIndicatorOnOtherChat(t *testing.T) {
 	assert.Equal(t, 1, chat2.Reactions)
 }
 
-func TestRoot_ReactionUpdate_OnOpenChat_ReadsReactions(t *testing.T) {
+func TestRoot_ReactionUpdate_OnOpenChat_DoesNotClearAllReactions(t *testing.T) {
 	m, st := newRootWithOpenChat(t) // chat 1 open and focused
 	st.SetChat(domain.Chat{ID: 1, Title: "Alice", Peer: domain.Peer{ID: 1, Type: domain.PeerUser}, UnreadReactionsCount: 1})
 
@@ -1514,16 +1514,13 @@ func TestRoot_ReactionUpdate_OnOpenChat_ReadsReactions(t *testing.T) {
 		ReactionsUnread: true,
 	})
 	_ = newM.(ui.RootModel)
-	require.NotNil(t, cmd)
-
-	// Invoking the command asks the owner to read the reactions.
-	drainMsgs(cmd())
-	assert.Equal(t, 1, ownerOf(t, m).reactionsRead)
+	if cmd != nil {
+		drainMsgs(cmd())
+	}
+	assert.Zero(t, ownerOf(t, m).reactionsRead)
 }
 
-// A reaction delivered as an edit of an already-edited message must be marked
-// read like any other when the user is looking at the chat (#199).
-func TestRoot_EditWithReaction_OnOpenChat_ReadsReactions(t *testing.T) {
+func TestRoot_EditWithReaction_OnOpenChat_DoesNotClearAllReactions(t *testing.T) {
 	m, st := newRootWithOpenChat(t) // chat 1 open and focused
 	edited := time.Now().Add(-time.Hour)
 	st.AppendMessage(domain.Message{ID: 500, ChatID: 1, Text: "fixed typo", EditDate: &edited})
@@ -1536,27 +1533,27 @@ func TestRoot_EditWithReaction_OnOpenChat_ReadsReactions(t *testing.T) {
 			HasUnreadReactions: true,
 		},
 	})
-	require.NotNil(t, cmd)
-
-	drainMsgs(cmd())
-	assert.Equal(t, 1, ownerOf(t, m).reactionsRead)
+	if cmd != nil {
+		drainMsgs(cmd())
+	}
+	assert.Zero(t, ownerOf(t, m).reactionsRead)
 }
 
-func TestRoot_OpenChat_ClearsUnreadReactionsOptimistically(t *testing.T) {
+func TestRoot_OpenChat_PreservesUnreadReactions(t *testing.T) {
 	st := store.NewMemory()
 	st.SetChat(domain.Chat{ID: 1, Title: "Alice", Peer: domain.Peer{ID: 1, Type: domain.PeerUser}, UnreadReactionsCount: 3})
 	m := newRoot(st, 50, false)
 	m = m.WithScreen(ui.ScreenMain)
 
-	// The badge is cleared by the owner's command, ahead of its request (#198).
 	newM, cmd := m.Update(screens.OpenChatMsg{ChatID: 1, Title: "Alice"})
 	_ = newM.(ui.RootModel)
-	require.NotNil(t, cmd)
-	drainMsgs(cmd())
+	if cmd != nil {
+		drainMsgs(cmd())
+	}
 
 	c, ok := st.GetChat(1)
 	require.True(t, ok)
-	assert.Equal(t, 0, c.UnreadReactionsCount, "opening a chat clears its unread reactions")
+	assert.Equal(t, 3, c.UnreadReactionsCount, "opening is not reading every reaction")
 }
 
 func TestRoot_NewMention_BumpsIndicatorOnOtherChat(t *testing.T) {
@@ -1565,7 +1562,7 @@ func TestRoot_NewMention_BumpsIndicatorOnOtherChat(t *testing.T) {
 	newM, _ := applyEvent(t, m, st, store.Event{
 		Kind: store.EventNewMessage,
 		Message: domain.Message{
-			ID: 500, ChatID: 2, Mentioned: true, IsOut: false,
+			ID: 500, ChatID: 2, Mentioned: true, MediaUnread: true, IsOut: false,
 		},
 	})
 	root := newM.(ui.RootModel)
@@ -1583,7 +1580,7 @@ func TestRoot_NewMention_BumpsIndicatorOnOtherChat(t *testing.T) {
 	assert.Equal(t, 1, chat2.Mentions)
 }
 
-func TestRoot_OpenChat_ClearsUnreadMentionsOptimistically(t *testing.T) {
+func TestRoot_OpenChat_PreservesUnreadMentions(t *testing.T) {
 	st := store.NewMemory()
 	st.SetChat(domain.Chat{ID: 1, Title: "Alice", Peer: domain.Peer{ID: 1, Type: domain.PeerUser}, UnreadMentionsCount: 3})
 	m := newRoot(st, 50, false)
@@ -1591,12 +1588,13 @@ func TestRoot_OpenChat_ClearsUnreadMentionsOptimistically(t *testing.T) {
 
 	newM, cmd := m.Update(screens.OpenChatMsg{ChatID: 1, Title: "Alice"})
 	_ = newM.(ui.RootModel)
-	require.NotNil(t, cmd)
-	drainMsgs(cmd())
+	if cmd != nil {
+		drainMsgs(cmd())
+	}
 
 	c, ok := st.GetChat(1)
 	require.True(t, ok)
-	assert.Equal(t, 0, c.UnreadMentionsCount, "opening a chat clears its unread mentions")
+	assert.Equal(t, 3, c.UnreadMentionsCount, "opening is not reading every mention")
 }
 
 func TestRoot_PasteMsg_WhenComposerFocused_InsertsText(t *testing.T) {
@@ -1881,9 +1879,7 @@ func TestRoot_SearchUsersRequestRunsRPCAndRoutesResult(t *testing.T) {
 	assert.Equal(t, 1, res.Serial)
 }
 
-// A reaction that lands while the chat is on screen must be marked read, even
-// though the message it landed on may be far outside the window.
-func TestRoot_ReactionWhileChatOpen_MarksItRead(t *testing.T) {
+func TestRoot_ReactionWhileChatOpen_DoesNotClearAllReactions(t *testing.T) {
 	m, st := newRootWithOpenChat(t) // chat 1 open and focused
 	st.SetMessages(1, []domain.Message{
 		{ID: 10, ChatID: 1, Text: "mine", IsOut: true, Date: time.Unix(1, 0)},
@@ -1896,14 +1892,13 @@ func TestRoot_ReactionWhileChatOpen_MarksItRead(t *testing.T) {
 		Reactions: []domain.Reaction{{Emoji: "👍", Count: 1}}, ReactionsUnread: true,
 	})
 
-	require.NotNil(t, cmd, "an arriving reaction on the open chat must be read")
-	drainMsgs(cmd())
-	assert.Equal(t, 1, ownerOf(t, m).reactionsRead)
+	if cmd != nil {
+		drainMsgs(cmd())
+	}
+	assert.Zero(t, ownerOf(t, m).reactionsRead)
 }
 
-// A reaction that arrives while the chat pane is not focused is only seen when
-// the user looks at it, so that is when it counts as read.
-func TestRoot_ReactionArrivingUnfocused_IsReadOnFocus(t *testing.T) {
+func TestRoot_ReactionArrivingUnfocused_IsNotClearedWholesaleOnFocus(t *testing.T) {
 	m, st := newRootWithOpenChat(t)
 	st.SetMessages(1, []domain.Message{
 		{ID: 10, ChatID: 1, Text: "mine", IsOut: true, Date: time.Unix(1, 0)},
@@ -1918,10 +1913,10 @@ func TestRoot_ReactionArrivingUnfocused_IsReadOnFocus(t *testing.T) {
 	m = nm.(ui.RootModel)
 	assert.Nil(t, cmd, "nobody is looking at the chat pane yet")
 
-	// Focusing the pane is the moment the reaction is seen.
 	out, cmd := m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 	_ = out
-	require.NotNil(t, cmd, "focusing the chat must read the waiting reaction")
-	drainMsgs(cmd())
-	assert.Equal(t, 1, ownerOf(t, m).reactionsRead)
+	if cmd != nil {
+		drainMsgs(cmd())
+	}
+	assert.Zero(t, ownerOf(t, m).reactionsRead)
 }

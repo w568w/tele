@@ -40,6 +40,16 @@ func (o *Owner) RunUpdates(ctx context.Context) {
 // decision, one clock, two sinks: splitting it in two is how the OS banner and
 // the in-app toast used to drift apart (#192).
 func (o *Owner) handleEvent(evt store.Event) {
+	switch evt.Kind {
+	case store.EventNewMessage, store.EventEditMessage, store.EventReactionsUpdate, store.EventReadContents, store.EventDeleteMessages:
+		if o.applyImportantEvent(evt) {
+			go o.hydrateImportantRoot(evt.ChatID, evt.MsgID)
+		}
+	}
+	if evt.Kind == store.EventReadContents {
+		o.Refresh()
+		return
+	}
 	// Telegram may report a forward into Saved Messages as inbound. A message
 	// in the authenticated account's self chat is necessarily ours.
 	if evt.Kind == store.EventNewMessage && evt.Message.ChatID == o.selfID.Load() {

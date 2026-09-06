@@ -57,6 +57,7 @@ var actionDisplayOrder = []keys.Action{
 	keys.ActionRemoveWebPreview,
 	keys.ActionCopyMessage, keys.ActionOpenInViewer, keys.ActionOpenExternal,
 	keys.ActionPlayVoice, keys.ActionDownloadFile, keys.ActionJumpToOriginal,
+	keys.ActionPreviousImportant,
 	keys.ActionMarkRead, keys.ActionMarkUnread, keys.ActionMute, keys.ActionUnmute,
 	keys.ActionArchive, keys.ActionUnarchive, keys.ActionAddToFolder, keys.ActionAttach,
 	keys.ActionPasteImage, keys.ActionChooseSticker, keys.ActionToggleWebPreview,
