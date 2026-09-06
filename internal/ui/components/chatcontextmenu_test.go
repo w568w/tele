@@ -17,6 +17,24 @@ func TestChatMenu_ReadLabelForUnreadChat(t *testing.T) {
 	assert.Contains(t, cm.View(), "Mark as read")
 }
 
+func TestChatMenu_LinkedGroupIsChannelOnly(t *testing.T) {
+	for _, kind := range []domain.PeerType{domain.PeerUser, domain.PeerGroup, domain.PeerSuperGroup, domain.PeerChannel} {
+		chat := domain.Chat{ID: 1, Peer: domain.Peer{ID: 1, Type: kind}}
+		cm := components.NewChatContextMenu(chat, nil, keys.DefaultKeyMap())
+		if kind != domain.PeerChannel {
+			assert.NotContains(t, cm.View(), "Open linked discussion group")
+			continue
+		}
+		assert.Contains(t, cm.View(), "Open linked discussion group")
+		for i := 0; i < 3; i++ {
+			cm, _ = cm.Update(keyMsg('j'))
+		}
+		_, cmd := cm.Update(pressEnter())
+		require.NotNil(t, cmd)
+		assert.Equal(t, components.OpenLinkedGroupRequest{Chat: chat}, cmd())
+	}
+}
+
 func TestChatMenu_UnreadLabelForReadChat(t *testing.T) {
 	chat := domain.Chat{ID: 1, Peer: domain.Peer{ID: 1, Type: domain.PeerUser}}
 	cm := components.NewChatContextMenu(chat, nil, keys.DefaultKeyMap())

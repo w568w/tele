@@ -18,11 +18,15 @@ import (
 
 type importantUIOwner struct {
 	*ownerStub
+	group        domain.Chat
 	err          error
 	before, root int
 	visible      []int
 }
 
+func (o *importantUIOwner) LinkedDiscussionGroup(context.Context, int64) (domain.Chat, error) {
+	return o.group, o.err
+}
 func (o *importantUIOwner) RefreshImportant(context.Context, int64) error { return o.err }
 func (o *importantUIOwner) PreviousImportant(_ context.Context, _ int64, root, before int) (int, error) {
 	o.root, o.before = root, before
@@ -38,7 +42,7 @@ func importantUIFixture(t *testing.T) (RootModel, *importantUIOwner) {
 	st := store.NewMemory()
 	chat := domain.Chat{ID: 1, Title: "Channel", Peer: domain.Peer{ID: 1, Type: domain.PeerChannel}}
 	st.SetChat(chat)
-	o := &importantUIOwner{ownerStub: newOwnerStub(st)}
+	o := &importantUIOwner{ownerStub: newOwnerStub(st), group: domain.Chat{ID: 2, Title: "Discussion", Peer: domain.Peer{ID: 2, Type: domain.PeerSuperGroup}}}
 	m := NewRootModel(st, 20, false).WithOwner(o).WithScreen(ScreenMain)
 	m, _ = m.activatePage(project.ChatWindow{ChatID: 1, Peer: chat.Peer, Title: chat.Title, Before: 20}, 1, 0, false)
 	m.chat.SetSize(70, 25)
@@ -47,6 +51,39 @@ func importantUIFixture(t *testing.T) (RootModel, *importantUIOwner) {
 	m.importantUnread = domain.ImportantUnread{Mentions: 1, Revision: 1}
 	_ = m.chat.View()
 	return m, o
+}
+
+func TestImportantLinkedGroupNavigationAndReturn(t *testing.T) {
+	m, _ := importantUIFixture(t)
+	source := m.snapshotPage()
+	chat, _ := m.st.GetChat(1)
+	m, cmd := m.openLinkedGroup(chat)
+	require.NotNil(t, cmd)
+	m, _ = m.applyLinkedGroup(cmd().(linkedGroupReadyMsg))
+	assert.Equal(t, int64(2), m.currentChatID)
+	assert.Zero(t, m.chatWindow.ThreadRootID, "open whole group, not Comments")
+	require.Len(t, m.pageHistory, 1)
+	m, _ = m.popPage()
+	assert.Equal(t, source.window, m.chatWindow)
+	assert.Equal(t, source.selectedMsgID, m.pendingJumpMsgID)
+}
+
+func TestImportantLinkedGroupFailureAndStaleResult(t *testing.T) {
+	m, o := importantUIFixture(t)
+	chat, _ := m.st.GetChat(1)
+	o.err = errors.New("private group")
+	m, cmd := m.openLinkedGroup(chat)
+	m, report := m.applyLinkedGroup(cmd().(linkedGroupReadyMsg))
+	require.NotNil(t, report)
+	assert.Equal(t, int64(1), m.currentChatID)
+	assert.Empty(t, m.pageHistory)
+	o.err = nil
+	m, cmd = m.openLinkedGroup(chat)
+	ready := cmd().(linkedGroupReadyMsg)
+	m.linkOpenSerial++
+	m, _ = m.applyLinkedGroup(ready)
+	assert.Equal(t, int64(1), m.currentChatID)
+	assert.Empty(t, m.pageHistory)
 }
 
 func TestImportantPreviousUsesSelectionAndAnchorWithoutBackStack(t *testing.T) {

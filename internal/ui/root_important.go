@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sorokin-vladimir/tele/internal/core/project"
+	"github.com/sorokin-vladimir/tele/internal/domain"
 )
 
 type importantOwner interface {
@@ -26,6 +27,12 @@ type previousImportantMsg struct {
 	sub project.SubID
 	id  int
 	err error
+}
+type linkedGroupReadyMsg struct {
+	serial int
+	source pageLocation
+	chat   domain.Chat
+	err    error
 }
 
 func (m RootModel) importantPollTick() tea.Cmd {
@@ -115,4 +122,37 @@ func (m RootModel) importantTitle(title string, width int) string {
 		counts = "@ ? · ♥ ?"
 	}
 	return ansi.Truncate(ansi.Truncate(title, max(0, width-ansi.StringWidth(counts)-7), "…")+" "+counts, max(0, width-4), "")
+}
+
+func (m RootModel) openLinkedGroup(chat domain.Chat) (RootModel, tea.Cmd) {
+	m.chatMenu = nil
+	owner, ok := m.owner.(interface {
+		LinkedDiscussionGroup(context.Context, int64) (domain.Chat, error)
+	})
+	if !ok || !chat.Peer.IsChannel() {
+		return m, nil
+	}
+	m.linkOpenSerial++
+	serial, ctx := m.linkOpenSerial, m.ctx
+	source := m.snapshotPage()
+	if m.currentChatID != chat.ID || m.inThread() {
+		source = pageLocation{window: project.ChatWindow{ChatID: chat.ID, Peer: chat.Peer, Title: chat.Title,
+			Anchor: project.Anchor{Kind: project.AnchorFirstUnread}, Before: m.historyLimit}, chatListChatID: chat.ID}
+	}
+	return m, func() tea.Msg {
+		group, err := owner.LinkedDiscussionGroup(ctx, chat.ID)
+		return linkedGroupReadyMsg{serial, source, group, err}
+	}
+}
+
+func (m RootModel) applyLinkedGroup(msg linkedGroupReadyMsg) (RootModel, tea.Cmd) {
+	if msg.serial != m.linkOpenSerial {
+		return m, nil
+	}
+	if msg.err != nil {
+		return m, func() tea.Msg { return errStatus("open discussion group", msg.err) }
+	}
+	m.pageHistory = append(m.pageHistory, msg.source)
+	return m.activatePage(project.ChatWindow{ChatID: msg.chat.ID, Peer: msg.chat.Peer, Title: msg.chat.Title,
+		Anchor: project.Anchor{Kind: project.AnchorNewest}, Before: m.historyLimit}, msg.chat.ID, 0, false)
 }

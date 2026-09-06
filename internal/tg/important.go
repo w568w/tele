@@ -8,6 +8,34 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/telerr"
 )
 
+func (c *GotdClient) GetLinkedGroup(ctx context.Context, peer domain.Peer) (domain.Chat, error) {
+	api, err := c.acquireAPI()
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	full, err := api.ChannelsGetFullChannel(ctx, inputChannel(peer))
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	channel, ok := full.FullChat.(*tg.ChannelFull)
+	if !ok || channel.LinkedChatID == 0 {
+		return domain.Chat{}, &telerr.Error{Kind: telerr.NotFound, Op: "open discussion group", Detail: "channel has no linked discussion group"}
+	}
+	chat, ok := resolvedChat(&tg.PeerChannel{ChannelID: channel.LinkedChatID}, full.Users, full.Chats)
+	if !ok {
+		chat, err = c.ResolveChannel(ctx, channel.LinkedChatID)
+		if err != nil {
+			return domain.Chat{}, err
+		}
+	}
+	// Verify access before changing pages, without joining the linked group.
+	if _, err := api.ChannelsGetFullChannel(ctx, inputChannel(chat.Peer)); err != nil {
+		return domain.Chat{}, err
+	}
+	c.cachePeer(chat.Peer)
+	return chat, nil
+}
+
 func (c *GotdClient) GetUnreadImportant(ctx context.Context, peer domain.Peer, kind domain.ImportantKind, offsetID int) (domain.UnreadPage, error) {
 	api, err := c.acquireAPI()
 	if err != nil {

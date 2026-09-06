@@ -33,6 +33,10 @@ func (s *importantStub) ReadImportantContents(_ context.Context, _ domain.Peer, 
 	}
 	return nil
 }
+func (s *importantStub) GetLinkedGroup(context.Context, domain.Peer) (domain.Chat, error) {
+	return s.resolvedChat, s.err
+}
+
 func importantFixture(t *testing.T) (*Owner, *importantStub) {
 	t.Helper()
 	c := &importantStub{stubClient: &stubClient{}, pages: map[domain.ImportantKind]map[int][]domain.Message{
@@ -146,6 +150,22 @@ func TestImportantUnknownReactionRootAndRefresh(t *testing.T) {
 	assert.False(t, o.ImportantUnread(1, 5).Loading)
 	assert.Equal(t, 0, o.ImportantUnread(1, 5).Reactions)
 	assert.Equal(t, 1, o.ImportantUnread(1, 7).Reactions)
+}
+
+func TestImportantLinkedGroupRemainsTransient(t *testing.T) {
+	o, c := importantFixture(t)
+	o.state.Store().SetChat(domain.Chat{ID: 3, Peer: domain.Peer{ID: 3, Type: domain.PeerChannel}})
+	c.resolvedChat = domain.Chat{ID: 4, Title: "Discussion", Peer: domain.Peer{ID: 4, Type: domain.PeerSuperGroup}}
+	chat, err := o.LinkedDiscussionGroup(context.Background(), 3)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), chat.ID)
+	_, ok := o.reader().GetChat(4)
+	assert.True(t, ok)
+	_, persisted := o.state.Store().GetChat(4)
+	assert.False(t, persisted)
+	c.err = errors.New("no access")
+	_, err = o.LinkedDiscussionGroup(context.Background(), 3)
+	require.Error(t, err)
 }
 
 func TestImportantRefreshWaiterSharesFailure(t *testing.T) {

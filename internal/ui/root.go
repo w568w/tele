@@ -480,6 +480,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m RootModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case components.OpenLinkedGroupRequest:
+		return m.openLinkedGroup(msg.Chat)
+	case linkedGroupReadyMsg:
+		return m.applyLinkedGroup(msg)
 	case importantPollMsg:
 		return m.pollImportant(msg)
 	case importantVisibleMsg:

@@ -2,6 +2,7 @@ package tg
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/gotd/td/bin"
@@ -72,5 +73,35 @@ func TestImportantReadContentsRPCIsPeerScoped(t *testing.T) {
 	}))
 	for _, kind := range []domain.PeerType{domain.PeerUser, domain.PeerSuperGroup} {
 		require.NoError(t, c.ReadImportantContents(context.Background(), domain.Peer{ID: 7, Type: kind}, []int{5, 9}))
+	}
+}
+
+func TestImportantLinkedGroupChecksAccessWithoutJoining(t *testing.T) {
+	for _, denied := range []bool{false, true} {
+		c := testClient()
+		c.peers = make(map[int64]domain.Peer)
+		calls := 0
+		c.api = tg.NewClient(importantInvoker(func(in bin.Encoder) (bin.Encoder, error) {
+			req, ok := in.(*tg.ChannelsGetFullChannelRequest)
+			require.True(t, ok, "must not join or read history")
+			calls++
+			id := req.Channel.(*tg.InputChannel).ChannelID
+			if id == 2 && denied {
+				return nil, errors.New("CHANNEL_PRIVATE")
+			}
+			full := &tg.ChannelFull{ID: id, ChatPhoto: &tg.PhotoEmpty{}, NotifySettings: tg.PeerNotifySettings{}}
+			if id == 1 {
+				full.SetLinkedChatID(2)
+			}
+			return &tg.MessagesChatFull{FullChat: full, Chats: []tg.ChatClass{&tg.Channel{ID: 2, Megagroup: true, AccessHash: 22, Photo: &tg.ChatPhotoEmpty{}, Title: "Linked"}}}, nil
+		}))
+		chat, err := c.GetLinkedGroup(context.Background(), domain.Peer{ID: 1, Type: domain.PeerChannel})
+		if denied {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			assert.Equal(t, int64(2), chat.ID)
+		}
+		assert.Equal(t, 2, calls)
 	}
 }

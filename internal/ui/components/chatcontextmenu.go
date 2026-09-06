@@ -17,6 +17,7 @@ type ToggleUnreadRequest struct {
 	Peer   domain.Peer
 	Unread bool
 }
+type OpenLinkedGroupRequest struct{ Chat domain.Chat }
 type ToggleMuteRequest struct {
 	Peer  domain.Peer
 	Muted bool
@@ -93,6 +94,9 @@ func (cm *ChatContextMenu) mainItems() []menuItem {
 	// chat and absent for a group or a channel (#222).
 	if cm.chat.Peer.IsUser() {
 		items = append(items, menuItem{label: "Profile", action: keys.ActionShowProfile})
+	}
+	if cm.chat.Peer.IsChannel() {
+		items = append(items, menuItem{label: "Open linked discussion group", action: keys.ActionOpenLinkedGroup})
 	}
 	return items
 }
@@ -183,6 +187,8 @@ func (cm *ChatContextMenu) execute() (*ChatContextMenu, tea.Cmd) {
 	}
 
 	switch item.action {
+	case keys.ActionOpenLinkedGroup:
+		return nil, func() tea.Msg { return OpenLinkedGroupRequest{Chat: cm.chat} }
 	case keys.ActionMarkRead:
 		return nil, func() tea.Msg { return ToggleUnreadRequest{Peer: peer, Unread: false} }
 	case keys.ActionMarkUnread:

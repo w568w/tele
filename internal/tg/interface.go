@@ -130,6 +130,10 @@ type ImportantClient interface {
 	ReadImportantContents(ctx context.Context, peer domain.Peer, ids []int) error
 }
 
+type LinkedGroupClient interface {
+	GetLinkedGroup(ctx context.Context, peer domain.Peer) (domain.Chat, error)
+}
+
 // MessageOptionsClient is the optional send/edit surface for flags that most
 // callers never need. Keeping it separate avoids making every Client test
 // double implement variants of the ordinary message methods.

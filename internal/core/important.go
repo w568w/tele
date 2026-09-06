@@ -8,6 +8,7 @@ import (
 
 	"github.com/sorokin-vladimir/tele/internal/domain"
 	"github.com/sorokin-vladimir/tele/internal/store"
+	"github.com/sorokin-vladimir/tele/internal/telerr"
 	internaltg "github.com/sorokin-vladimir/tele/internal/tg"
 )
 
@@ -38,6 +39,25 @@ func (o *Owner) importantLocked(chatID int64) *importantIndex {
 		o.important[chatID] = idx
 	}
 	return idx
+}
+
+func (o *Owner) LinkedDiscussionGroup(ctx context.Context, chatID int64) (domain.Chat, error) {
+	peer, err := o.peer(chatID)
+	if err != nil {
+		return domain.Chat{}, err
+	}
+	client, ok := o.client.(internaltg.LinkedGroupClient)
+	if !ok {
+		return domain.Chat{}, &telerr.Error{Kind: telerr.Internal, Op: "open discussion group"}
+	}
+	if !peer.IsChannel() {
+		return domain.Chat{}, &telerr.Error{Kind: telerr.NotFound, Op: "open discussion group", Detail: "not a broadcast channel"}
+	}
+	chat, err := client.GetLinkedGroup(ctx, peer)
+	if err == nil {
+		o.rememberTransientChat(chat)
+	}
+	return chat, err
 }
 
 // RefreshImportant scans only Telegram's unread lists, never the entire chat

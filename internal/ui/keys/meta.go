@@ -62,6 +62,7 @@ var defaultLabels = map[Action]Label{
 	ActionReloadThemes:  {Short: "reload", Long: "re-read the config and theme files"},
 
 	ActionPreviousImportant: {Short: "important unread", Long: "previous important unread message (wraps)"},
+	ActionOpenLinkedGroup:   {Short: "discussion group", Long: "open linked discussion group"},
 	// Chat / message actions.
 	ActionSearch:          {Short: "search"},
 	ActionOpenContextMenu: {Short: "menu"},

@@ -53,6 +53,7 @@ const (
 	ActionCopyMessage     Action = "copy_message"
 	ActionPasteImage      Action = "paste_image"
 
+	ActionOpenLinkedGroup   Action = "open_linked_group"
 	ActionPreviousImportant Action = "previous_important"
 
 	ActionOpenDiscussion   Action = "open_discussion"
