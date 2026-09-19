@@ -35,6 +35,13 @@ func TestClassifyTgErr(t *testing.T) {
 		{"slowmode wait", &tgerr.Error{Code: 420, Type: "SLOWMODE_WAIT", Argument: 5}, telerr.RateLimited, 5 * time.Second, ""},
 		{"auth key unregistered", &tgerr.Error{Code: 401, Type: "AUTH_KEY_UNREGISTERED"}, telerr.Unauthorized, 0, ""},
 		{"auth key duplicated", &tgerr.Error{Code: 406, Type: "AUTH_KEY_DUPLICATED"}, telerr.Unauthorized, 0, ""},
+
+		// The app key, not the session. The published one is a 406, which the
+		// code table reads as Unauthorized, so the type has to win first or a
+		// blocked key becomes an endless invitation to sign in again.
+		{"published app key", &tgerr.Error{Code: 406, Type: "API_ID_PUBLISHED_FLOOD"}, telerr.AppKeyBlocked, 0, ""},
+		{"invalid app key", &tgerr.Error{Code: 400, Type: "API_ID_INVALID"}, telerr.AppKeyBlocked, 0, ""},
+
 		{"forbidden by code", &tgerr.Error{Code: 403, Type: "CHAT_WRITE_FORBIDDEN"}, telerr.Forbidden, 0, ""},
 		{"guest send requires joining", &tgerr.Error{Code: 403, Type: "CHAT_GUEST_SEND_FORBIDDEN"}, telerr.Forbidden, 0, telerr.ReasonGuestSendForbidden},
 		{"peer id invalid", &tgerr.Error{Code: 400, Type: "PEER_ID_INVALID"}, telerr.PeerNotFound, 0, ""},

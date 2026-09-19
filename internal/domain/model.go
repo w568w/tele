@@ -232,10 +232,20 @@ type Chat struct {
 	ReadInboxMaxID  int
 	ReadOutboxMaxID int
 	LastMessage     *Message
-	IsContact       bool
-	IsBot           bool
-	IsMuted         bool
-	Online          bool
+	// TopMessageID is the id of the newest message the server has for this
+	// chat, as of the last dialog list. It is where the history ends on
+	// Telegram's side, which is what a repair compares its progress against;
+	// LastMessage is the preview of that message and carries no id of its own.
+	//
+	// Held in memory only. Every connection reloads the dialog list before
+	// anything reads this, so a value from disk would always be overwritten
+	// before it was used, and a second place to be wrong about where the server
+	// is buys nothing.
+	TopMessageID int
+	IsContact    bool
+	IsBot        bool
+	IsMuted      bool
+	Online       bool
 	// UnreadMark is the Telegram dialog `unread_mark` flag: a manual
 	// "mark as unread" that is independent of UnreadCount.
 	UnreadMark bool
@@ -306,10 +316,12 @@ type Message struct {
 	// ThreadRootID identifies the discussion/thread this message belongs to.
 	// Zero means ordinary chat history. Direct replies to the root can omit it
 	// on the wire; thread projections also match ReplyToMsgID against the root.
-	ThreadRootID int
-	ReplyPreview *ReplyPreview
-	EditDate     *time.Time // nil if not edited
-	Reactions    []Reaction
+	ThreadRootID    int
+	ReplyPreview    *ReplyPreview
+	EditDate        *time.Time // nil if not edited
+	EditHidden      bool
+	AppliedPosition int
+	Reactions       []Reaction
 	// HasComments and RepliesCount come from message.replies on a channel post.
 	// DiscussionChatID is the associated discussion supergroup, when Telegram
 	// includes it in the preview.
@@ -357,6 +369,12 @@ type ReplyPreview struct {
 	Text       string
 	IsOut      bool
 }
+
+// ShowsEdited reports whether the message carries the "edited" mark. Being
+// edited and being labelled as edited are two different facts: Telegram hides
+// the label on a reaction bump and on a bot rewriting its own message, and asks
+// every client to hide it the same way.
+func (m Message) ShowsEdited() bool { return m.EditDate != nil && !m.EditHidden }
 
 // LocalMedia describes the files of a queued media send so the pending bubble
 // can name them and show upload progress.

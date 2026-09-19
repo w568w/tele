@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/gotd/td/telegram/dcs"
 	"go.uber.org/zap"
 
 	"github.com/sorokin-vladimir/tele/internal/config"
@@ -21,6 +22,7 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/core/state"
 	"github.com/sorokin-vladimir/tele/internal/inputmethod"
 	"github.com/sorokin-vladimir/tele/internal/notices"
+	"github.com/sorokin-vladimir/tele/internal/proxy"
 	"github.com/sorokin-vladimir/tele/internal/store"
 	internaltg "github.com/sorokin-vladimir/tele/internal/tg"
 	"github.com/sorokin-vladimir/tele/internal/ui"
@@ -149,6 +151,31 @@ func (a *App) reloadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+// openRoute settles how this process will reach Telegram, before anything is
+// drawn. Three things happen here and all three belong before the interface:
+// the route is named in the log, a declared proxy is dialled once so a server
+// nobody is listening on is a message on the terminal rather than an endless
+// reconnect, and the resolver is built for the client to hold.
+//
+// The route itself was already accepted when the config loaded - it is parsed
+// again here rather than carried, because a Route is cheap and a second field
+// on Config that has to be kept in step with the section is not.
+func openRoute(cfg *config.Config, path string, log *zap.Logger) (dcs.Resolver, error) {
+	route, err := proxy.Parse(cfg.Proxy)
+	if err != nil {
+		return nil, err
+	}
+	// One line, at Info so it shows without -e. It names the address, because a
+	// wrong port has to be visible in a log somebody pastes into an issue, and
+	// never the secret or the password.
+	log.Info("telegram route", zap.String("proxy", route.Describe()))
+
+	if err := proxy.Probe(context.Background(), route); err != nil {
+		return nil, fmt.Errorf("%w (set proxy.type: direct in %s to connect without a proxy)", err, path)
+	}
+	return proxy.Resolver(route)
+}
+
 func New(cfgStore *config.Store, log *zap.Logger, verbose bool, trace bool) (*App, error) {
 	cfg := cfgStore.Current()
 	statePath := filepath.Join(cfg.StateDir, "state.db")
@@ -157,7 +184,11 @@ func New(cfgStore *config.Store, log *zap.Logger, verbose bool, trace bool) (*Ap
 		return nil, fmt.Errorf("open state DB: %w", err)
 	}
 	stateStorage := internaltg.NewSQLiteStateStorage(sqliteStore.DB())
-	client := internaltg.NewGotdClient(log, stateStorage, trace)
+	resolver, err := openRoute(cfg, cfgStore.Path(), log)
+	if err != nil {
+		return nil, err
+	}
+	client := internaltg.NewGotdClient(log, stateStorage, trace, resolver)
 	owner := core.New(cfg, log, state.New(sqliteStore), client, newNotifier(log))
 
 	// The send queue shares the account database: the file DB runs on a single

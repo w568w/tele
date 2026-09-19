@@ -8,8 +8,21 @@ import (
 // ApplyIncoming records a newly received message. The second result reports
 // whether the client needs to hear about it at all; Change.UnreadChanged
 // separately reports whether a counter moved.
+//
+// A message already held is a second delivery of one arrival, which is ordinary
+// traffic under at-least-once delivery (ADR 0016), and an arrival happens once.
+// Position refuses it before anything is written, which also keeps a recovered
+// copy of the original from overwriting the edits that followed it. A copy with
+// no position is caught after the fact instead, by the store reporting that it
+// held the message already.
 func (s *State) ApplyIncoming(msg domain.Message) (Change, bool) {
-	unreadChanged := store.ApplyIncomingMessage(s.st, msg)
+	if !s.st.AdvanceAppliedPosition(msg.ChatID, msg.ID, msg.AppliedPosition) {
+		return Change{}, false
+	}
+	isNew, unreadChanged := store.ApplyIncomingMessage(s.st, msg)
+	if !isNew {
+		return Change{}, false
+	}
 	c := Change{
 		Kind:          ChangeNewMessage,
 		ChatID:        msg.ChatID,
@@ -23,23 +36,25 @@ func (s *State) ApplyIncoming(msg domain.Message) (Change, bool) {
 
 // ApplyEdit records a message edited on another client.
 //
-// Every edit update carries the message's whole current reaction set, so the
-// reactions are applied either way. What EditDate decides is only whether the
-// text changed too:
+// An edit update carries the message's whole current state, so everything in it
+// is applied: the text, the entities and the reaction set. None of the three is
+// an alternative to the others, and treating them as such dropped reactions
+// until the chat was reopened (#199).
 //
-// A nil EditDate means the converter dropped it as a hidden edit (Telegram
-// edit_hide), for example a reaction bump. That is not a content edit and must
-// not flip the message to "edited" (#118) — but in 1:1 chats an incoming
-// reaction is delivered ONLY as this hidden edit, carrying the message's new
-// reactions rather than a separate UpdateMessageReactions (#160). So a hidden
-// edit is applied as, and reported as, a reactions change.
+// The edit marker is the only conditional part. A message nobody edited carries
+// no edit date and must not be given one: in a 1:1 chat an incoming reaction is
+// delivered as an edit and nothing else (#160), and it must not flip the
+// message to "edited" (#118). Whether an edit that did happen shows the label
+// is Telegram's call, carried separately in EditHidden - which is why the text
+// lands either way (#269).
 //
-// A non-nil EditDate is a real content edit — or a reaction on a message that
-// was genuinely edited earlier, where edit_date still carries the original edit
-// time and edit_hide is false because the "edited" label should keep showing.
-// Text and reactions are not alternatives, and treating them as such dropped
-// those reactions until the chat was reopened (#199).
+// An edit at or behind the position the message has already applied is a late
+// copy of a change that has already happened. It writes nothing and reports
+// nothing, so a newer text can never be replaced by an older one (ADR 0016).
 func (s *State) ApplyEdit(msg domain.Message) (Change, bool) {
+	if !s.st.AdvanceAppliedPosition(msg.ChatID, msg.ID, msg.AppliedPosition) {
+		return Change{}, false
+	}
 	if msg.IsService {
 		for _, old := range s.st.Messages(msg.ChatID) {
 			if old.ID != msg.ID {
@@ -72,7 +87,16 @@ func (s *State) ApplyEdit(msg domain.Message) (Change, bool) {
 	if msg.EditDate == nil {
 		return s.ApplyReactions(msg.ChatID, msg.ID, msg.Reactions, msg.HasUnreadReactions)
 	}
-	s.st.UpdateMessageText(msg.ChatID, msg.ID, msg.Text, msg.Entities, msg.HasWebPreview, *msg.EditDate)
+	s.st.UpdateMessageText(msg.ChatID, msg.ID, msg.Text, msg.Entities)
+	for _, stored := range s.st.Messages(msg.ChatID) {
+		if stored.ID == msg.ID {
+			stored.HasWebPreview = msg.HasWebPreview
+			stored.AppliedPosition = msg.AppliedPosition
+			s.st.ReplaceMessage(msg.ChatID, stored)
+			break
+		}
+	}
+	s.st.MarkMessageEdited(msg.ChatID, msg.ID, *msg.EditDate, msg.EditHidden)
 	s.st.UpdateMessageReactions(msg.ChatID, msg.ID, msg.Reactions)
 	unreadChanged := false
 	if msg.HasUnreadReactions {
@@ -101,8 +125,8 @@ func (s *State) ApplyRestore(msg domain.Message) (Change, bool) {
 
 // ApplyEditRestore puts a message back as it was before an edit Telegram
 // refused, including clearing the EditDate the optimistic version stamped on.
-// ApplyEdit cannot do this: a message with no EditDate means "reactions only"
-// there, which is right for the update path and wrong for a rollback.
+// ApplyEdit cannot do this: it only ever sets the marker, because an update
+// that arrives without an edit date says nothing about one that did not.
 func (s *State) ApplyEditRestore(msg domain.Message) (Change, bool) {
 	s.st.ReplaceMessage(msg.ChatID, msg)
 	c := Change{Kind: ChangeMessageEdited, ChatID: msg.ChatID, Message: msg, MsgID: msg.ID}
@@ -179,6 +203,36 @@ func (s *State) ApplyReplyPreview(chatID int64, msgID int, preview domain.ReplyP
 // be erased by the older snapshot.
 func (s *State) ApplyHistory(chatID int64, msgs []domain.Message) (Change, bool) {
 	s.st.MergeMessages(chatID, msgs)
+	c := Change{Kind: ChangeHistory, ChatID: chatID}
+	s.commit(c)
+	return c, true
+}
+
+// MergeHistory joins a fetched page to a chat's stored history and publishes one
+// change, so the chat:<id> projection rebuilds through the same path as every
+// other change. The merge itself happens inside the store, under its lock,
+// which is what keeps a message arriving mid-fetch from being overwritten.
+//
+// A page that added nothing publishes nothing: it means the fetch reached
+// history the store already had, and rebuilding every window to say so would
+// cost a frame for no news.
+func (s *State) MergeHistory(chatID int64, msgs []domain.Message) (Change, bool) {
+	if s.st.MergeMessages(chatID, msgs) == 0 {
+		return Change{}, false
+	}
+	c := Change{Kind: ChangeHistory, ChatID: chatID}
+	s.commit(c)
+	return c, true
+}
+
+// RepairHistory joins a page fetched to close a gap. It differs from
+// MergeHistory in what it promises the store: a repair leaves the chat no
+// deeper than it found it, because nobody asked for the page and its cost
+// should not outlive the hole it filled.
+func (s *State) RepairHistory(chatID int64, msgs []domain.Message) (Change, bool) {
+	if s.st.RepairMessages(chatID, msgs) == 0 {
+		return Change{}, false
+	}
 	c := Change{Kind: ChangeHistory, ChatID: chatID}
 	s.commit(c)
 	return c, true

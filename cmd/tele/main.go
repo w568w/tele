@@ -13,6 +13,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/sorokin-vladimir/tele/internal/app"
+	"github.com/sorokin-vladimir/tele/internal/appkey"
 	"github.com/sorokin-vladimir/tele/internal/config"
 	"github.com/sorokin-vladimir/tele/internal/statedir"
 	"github.com/sorokin-vladimir/tele/internal/ui/keys"
@@ -98,6 +99,16 @@ func main() {
 	}
 	if cfg.Telegram.APIHash == "" {
 		cfg.Telegram.APIHash = buildAPIHash
+	}
+
+	// Last resort: the key compiled into published source, which is what a build
+	// that came from anywhere but the release pipeline has. Taken as a pair and
+	// only when nothing above supplied either half, so it can never be spliced
+	// onto the id or the hash of another key.
+	if cfg.Telegram.APIID == 0 && cfg.Telegram.APIHash == "" {
+		if id, hash := appkey.Published(); id != 0 && hash != "" {
+			cfg.Telegram.APIID, cfg.Telegram.APIHash = id, hash
+		}
 	}
 
 	if cfg.Telegram.APIID == 0 || cfg.Telegram.APIHash == "" {

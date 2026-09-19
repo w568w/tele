@@ -145,7 +145,49 @@ func (c *GotdClient) SendMessageNoPreview(ctx context.Context, peer domain.Peer,
 	return c.sendMessage(ctx, peer, text, replyToMsgID, threadRootID, entities, randomID, true)
 }
 
+// GetHistoryAfter fetches up to limit messages newer than afterID, oldest
+// first. It is the direction backfill does not go: messages.getHistory pages
+// backwards from offset_id, and a negative add_offset is what moves the window
+// to the other side of it.
+//
+// Telegram slides the window when there are fewer than limit messages newer
+// than afterID, so the page can come back holding messages at or below afterID.
+// The caller sees that as a page whose newest message did not advance, which is
+// how it learns there is nothing newer to fetch.
+func (c *GotdClient) GetHistoryAfter(ctx context.Context, peer domain.Peer, afterID int, limit int) ([]domain.Message, error) {
+	api, err := c.acquireAPI()
+	if err != nil {
+		return nil, err
+	}
+
+	c.traceLog.Debug("GetHistoryAfter", zap.Int64("peer_id", peer.ID), zap.Int("afterID", afterID), zap.Int("limit", limit))
+	inputPeer := peerToInput(peer)
+	var msgs []domain.Message
+	err = WithRetry(ctx, func() error {
+		result, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+			Peer:      inputPeer,
+			Limit:     limit,
+			OffsetID:  afterID,
+			AddOffset: -limit,
+		})
+		if err != nil {
+			c.log.Error("MessagesGetHistory forward failed", zap.Error(err))
+			return err
+		}
+		msgs = parseHistory(result, peer.ID)
+		// Seed the sender-name cache from the fully-resolved history so a later
+		// live update that omits a sender's entity still resolves the name (#161).
+		for _, m := range msgs {
+			c.senderNames.put(m.SenderID, m.SenderName)
+		}
+		c.traceLog.Debug("GetHistoryAfter done", zap.Int64("peer_id", peer.ID), zap.Int("count", len(msgs)))
+		return nil
+	})
+	return msgs, err
+}
+
 func (c *GotdClient) sendMessage(ctx context.Context, peer domain.Peer, text string, replyToMsgID, threadRootID int, entities []domain.MessageEntity, randomID int64, noWebpage bool) (domain.Message, error) {
+
 	api, err := c.acquireAPI()
 	if err != nil {
 		return domain.Message{}, err
@@ -575,16 +617,31 @@ func (c *GotdClient) SendReaction(ctx context.Context, peer domain.Peer, msgID i
 		return err
 	}
 	c.traceLog.Debug("SendReaction", zap.Int64("peer_id", peer.ID), zap.Int("msg_id", msgID), zap.String("emoji", emoji))
+	attempt := 0
 	return WithRetry(ctx, func() error {
-		_, err := api.MessagesSendReaction(ctx, &tg.MessagesSendReactionRequest{
+		attempt++
+		start := time.Now()
+		reply, err := api.MessagesSendReaction(ctx, &tg.MessagesSendReactionRequest{
 			Peer:     peerToInput(peer),
 			MsgID:    msgID,
 			Reaction: buildReactionArg(emoji),
 		})
+		// Reaction trace (#248): the reply is where Telegram states the set it
+		// ended up with. Its updates also reach the dispatcher through the
+		// update hook, so this line is what pairs them with this request.
 		if err != nil {
 			c.log.Error("MessagesSendReaction failed", zap.Error(err))
+			c.traceLog.Debug("reaction: send attempt failed",
+				zap.Int64("peer_id", peer.ID), zap.Int("msg_id", msgID), zap.Int("attempt", attempt),
+				zap.Duration("took", time.Since(start)), zap.Error(err))
+			return err
 		}
-		return err
+		types, found := reactionsInReply(reply, msgID)
+		c.traceLog.Debug("reaction: send reply",
+			zap.Int64("peer_id", peer.ID), zap.Int("msg_id", msgID), zap.String("emoji", emoji),
+			zap.Int("attempt", attempt), zap.Duration("took", time.Since(start)),
+			zap.Strings("updates", types), zap.String("reactions", found))
+		return nil
 	})
 }
 

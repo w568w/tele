@@ -28,7 +28,7 @@ func (o *Owner) Subscribe(w project.Window) project.SubID {
 	id, deltas := o.registry.Subscribe(w)
 	o.publish(deltas)
 	o.projectionMu.Unlock()
-	o.maybeBackfill(id, w)
+	o.maybeFetch(id, w)
 	if cw, ok := w.(project.ChatWindow); ok {
 		go func() { _ = o.RefreshImportant(o.ctx, cw.ChatID) }()
 	}
@@ -49,7 +49,7 @@ func (o *Owner) MoveWindow(id project.SubID, w project.Window) {
 	o.publish(o.registry.MoveWindow(id, w))
 	o.projectionMu.Unlock()
 	o.fetchMu.Unlock()
-	o.maybeBackfill(id, w)
+	o.maybeFetch(id, w)
 }
 
 func (o *Owner) Unsubscribe(id project.SubID) {
@@ -73,9 +73,11 @@ func (o *Owner) Refresh() {
 	o.projectionMu.Unlock()
 }
 
-// maybeBackfill fetches from Telegram when a chat window asked for more history
-// than the store holds, so a client never has to know where data comes from.
-func (o *Owner) maybeBackfill(id project.SubID, w project.Window) {
+// maybeFetch goes to Telegram when the store cannot answer a chat window on its
+// own, so a client never has to know where data comes from. There are two
+// reasons: the chat has a recorded gap, which is a hole somebody has to close,
+// and the window came back short, which is history nobody has fetched yet.
+func (o *Owner) maybeFetch(id project.SubID, w project.Window) {
 	cw, ok := w.(project.ChatWindow)
 	if !ok || o.client == nil {
 		return
@@ -86,10 +88,11 @@ func (o *Owner) maybeBackfill(id project.SubID, w project.Window) {
 		unreadHistoryIncomplete(o.state.Store().Messages(cw.ChatID), chat)
 	needsChannelMetadata := cw.ThreadRootID == 0 && chat.Peer.IsChannel() && len(contents.Messages) > 0
 	_, _, needsGapRepair := recoverableHistoryGap(contents.Messages, chat.Peer, o.Config().UI.HistoryLimit)
-	if !needsBackfill(contents, cw) && !needsUnread && !needsGapRepair && !needsReplyPreviews(contents.Messages) && !needsChannelMetadata {
+	_, hasGap := o.state.Store().Gap(cw.ChatID)
+	if !hasGap && !needsBackfill(contents, cw) && !needsUnread && !needsGapRepair && !needsReplyPreviews(contents.Messages) && !needsChannelMetadata {
 		return
 	}
-	go o.backfill(o.ctx, id, cw)
+	go o.fill(o.ctx, id, cw)
 }
 
 // needsBackfill reports that the store could not fill the window: it returned

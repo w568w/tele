@@ -8,16 +8,18 @@ import "github.com/sorokin-vladimir/tele/internal/domain"
 // so the same event produces the same state with several clients attached or
 // none at all (#189, groundwork for #183).
 //
-// Returns true when a chat's unread or mention count changed, so callers can
-// refresh derived views such as folder counts.
-func ApplyIncomingMessage(s Store, msg domain.Message) bool {
-	s.AppendMessage(msg)
+// isNew reports whether the message was not already held, which is how the
+// second delivery of one arrival is told from the first. counted reports whether
+// a chat's unread or mention count moved, so callers can refresh derived views
+// such as folder counts.
+func ApplyIncomingMessage(s Store, msg domain.Message) (isNew, counted bool) {
+	isNew = s.AppendMessage(msg)
 	if msg.IsOut {
-		return false
+		return isNew, false
 	}
-	changed := s.ApplyUnreadMessage(msg.ChatID, msg.ID)
+	counted = s.ApplyUnreadMessage(msg.ChatID, msg.ID)
 	if msg.Mentioned && msg.MediaUnread && s.ApplyUnreadMention(msg.ChatID, msg.ID, true) {
-		changed = true
+		counted = true
 	}
-	return changed
+	return isNew, counted
 }

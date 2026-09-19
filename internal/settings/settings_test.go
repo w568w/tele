@@ -24,7 +24,7 @@ func TestValidate_AbsenceIsLegal(t *testing.T) {
 }
 
 func TestValidate_Toggle(t *testing.T) {
-	e := settings.Entry{Key: "ui.notification_preview", Widget: settings.Toggle}
+	e := settings.Entry{Key: "ui.notifications.preview", Widget: settings.Toggle}
 
 	assert.NoError(t, e.Validate(true))
 	assert.NoError(t, e.Validate(false))

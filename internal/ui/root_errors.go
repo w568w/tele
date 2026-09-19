@@ -38,6 +38,14 @@ func errText(action string, err error) (string, components.Severity, bool) {
 	switch e.Kind {
 	case telerr.Unauthorized:
 		return action + ": session expired, sign in again", components.SeverityError, true
+	case telerr.AppKeyBlocked:
+		// Both remedies, on their own lines: which one is easier is the
+		// person's to judge, and neither fits beside the cause on a narrow
+		// terminal. Toasts wrap and the chat pane centres the block, so the
+		// line breaks survive both surfaces.
+		return action + ": app key blocked by Telegram\n" +
+			"set your own telegram.api_id in the config,\n" +
+			"or install an official build (see the README)", components.SeverityError, true
 	case telerr.RateLimited:
 		return action + ": too fast, retry in " + formatWait(e.RetryAfter), components.SeverityWarning, true
 	case telerr.PeerNotFound:

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi/kitty"
@@ -29,6 +30,24 @@ func TestKittyStore_IDForStableAndMonotonic(t *testing.T) {
 	require.Equal(t, a, s.IDFor(100), "same photo keeps its id")
 	require.NotEqual(t, a, b, "different photos get different ids")
 	require.Greater(t, a, uint32(0), "ids are positive")
+}
+
+// TestKittyStore_IDsStartSomewhereRandom guards against two runs handing the
+// same terminal the same image ids. A terminal keeps the placements of a
+// process that has exited, and iTerm2 resolves a placeholder to the first
+// placement carrying that id, so a fresh run numbering from 1 draws the
+// previous run's photos (#259).
+func TestKittyStore_IDsStartSomewhereRandom(t *testing.T) {
+	const stores = 8
+
+	first := make(map[uint32]int, stores)
+	for range stores {
+		id := media.NewKittyStore().IDFor(100)
+		require.LessOrEqual(t, id, uint32(0xFFFFFF), "ids fit the placeholder's 24-bit encoding")
+		require.Greater(t, id, uint32(0), "ids are positive")
+		first[id]++
+	}
+	require.Greater(t, len(first), 1, "stores do not all start at the same id")
 }
 
 func TestKittyStore_ReadyTracksTransmission(t *testing.T) {
@@ -174,6 +193,35 @@ func TestKittyRenderer_CellsCarryPlaceholderAndDiacritics(t *testing.T) {
 	require.Contains(t, first, string(kitty.Diacritic(0)))      // row 0
 	require.Contains(t, first, string(kitty.Diacritic(cols-1))) // last column
 	require.True(t, strings.HasSuffix(first, "\x1b[0m"), "line resets SGR")
+}
+
+// TestPlaceholderWindow_CellsCarryImageIDMSB pins the third diacritic. The
+// Kitty spec makes it optional while the image id fits in 24 bits, but iTerm2
+// reads an absent one as -1 and shifts it into the id as 0xff000000, so the
+// placement is never found and the image does not draw (#259).
+func TestPlaceholderWindow_CellsCarryImageIDMSB(t *testing.T) {
+	lines := media.PlaceholderWindow(7, 0, 0, 1, 1)
+	require.Len(t, lines, 1)
+
+	var marks []rune
+	for _, r := range lines[0] {
+		if unicode.Is(unicode.Mn, r) {
+			marks = append(marks, r)
+		}
+	}
+	require.Equal(t,
+		[]rune{kitty.Diacritic(0), kitty.Diacritic(0), kitty.Diacritic(0)},
+		marks, "cell carries row, column and image-id-msb diacritics")
+}
+
+// TestPlaceholderWindow_MSBDiacriticFollowsID guards the encoding for ids that
+// do not fit in 24 bits, so a wrapped id still names its own placement.
+func TestPlaceholderWindow_MSBDiacriticFollowsID(t *testing.T) {
+	const id = 0x03_00_00_05
+
+	lines := media.PlaceholderWindow(id, 0, 0, 1, 1)
+	require.Len(t, lines, 1)
+	require.Contains(t, lines[0], string(kitty.Diacritic(3)), "third diacritic spells the id's top byte")
 }
 
 func TestKittyStore_DeleteLiveSeq_PerID(t *testing.T) {

@@ -1813,18 +1813,41 @@ func TestRoot_EventEditMessage_HiddenEdit_DoesNotMarkEdited(t *testing.T) {
 	m := newRoot(st, 50, false)
 	m = m.WithScreen(ui.ScreenMain)
 
-	// A hidden edit (edit_hide) reaches the root as EventEditMessage with a nil
-	// EditDate — e.g. a reaction bump. It must not flip the message to "edited"
-	// (issue #118).
+	// A hidden edit (edit_hide) reaches the root as EventEditMessage carrying an
+	// edit date Telegram asks not to show — e.g. a reaction bump. It must not
+	// flip the message to "edited" (issue #118).
+	at := time.Now()
 	newM, _ := applyEvent(t, m, st, store.Event{
 		Kind:    store.EventEditMessage,
-		Message: domain.Message{ID: 10, ChatID: 1, Text: "original", EditDate: nil},
+		Message: domain.Message{ID: 10, ChatID: 1, Text: "original", EditDate: &at, EditHidden: true},
 	})
 	_ = newM.(ui.RootModel)
 
 	msgs := st.Messages(1)
 	require.Len(t, msgs, 1)
-	assert.Nil(t, msgs[0].EditDate, "hidden edit must not set the edited marker")
+	assert.False(t, msgs[0].ShowsEdited(), "hidden edit must not set the edited marker")
+}
+
+func TestRoot_EventEditMessage_HiddenEdit_UpdatesTheText(t *testing.T) {
+	st := store.NewMemory()
+	st.SetChat(domain.Chat{ID: 1, Title: "Alice", Peer: domain.Peer{ID: 1, Type: domain.PeerUser}})
+	st.AppendMessage(domain.Message{ID: 10, ChatID: 1, Text: "thinking"})
+	m := newRoot(st, 50, false)
+	m = m.WithScreen(ui.ScreenMain)
+
+	// A bot streaming its reply rewrites one message under hidden edits. The
+	// text must reach the chat, the label must not (#269).
+	at := time.Now()
+	newM, _ := applyEvent(t, m, st, store.Event{
+		Kind:    store.EventEditMessage,
+		Message: domain.Message{ID: 10, ChatID: 1, Text: "the whole answer", EditDate: &at, EditHidden: true},
+	})
+	_ = newM.(ui.RootModel)
+
+	msgs := st.Messages(1)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "the whole answer", msgs[0].Text)
+	assert.False(t, msgs[0].ShowsEdited())
 }
 
 func TestRoot_EventEditMessage_HiddenEdit_AppliesReactions(t *testing.T) {
@@ -1838,10 +1861,11 @@ func TestRoot_EventEditMessage_HiddenEdit_AppliesReactions(t *testing.T) {
 	// (edit_hide) carrying the message's new reactions, not as a separate
 	// UpdateMessageReactions. The reactions must be applied so they appear live,
 	// while the message must still not be flipped to "edited" (#160, #118).
+	at := time.Now()
 	newM, _ := applyEvent(t, m, st, store.Event{
 		Kind: store.EventEditMessage,
 		Message: domain.Message{
-			ID: 10, ChatID: 1, Text: "original", EditDate: nil,
+			ID: 10, ChatID: 1, Text: "original", EditDate: &at, EditHidden: true,
 			Reactions: []domain.Reaction{{Emoji: "👍", Count: 1}},
 		},
 	})
@@ -1849,7 +1873,7 @@ func TestRoot_EventEditMessage_HiddenEdit_AppliesReactions(t *testing.T) {
 
 	msgs := st.Messages(1)
 	require.Len(t, msgs, 1)
-	assert.Nil(t, msgs[0].EditDate, "hidden edit must not set the edited marker")
+	assert.False(t, msgs[0].ShowsEdited(), "hidden edit must not set the edited marker")
 	require.Len(t, msgs[0].Reactions, 1, "reactions from the hidden edit must be applied")
 	assert.Equal(t, "👍", msgs[0].Reactions[0].Emoji)
 	assert.Equal(t, 1, msgs[0].Reactions[0].Count)

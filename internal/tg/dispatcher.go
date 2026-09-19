@@ -44,7 +44,7 @@ func setupDispatcher(
 	// emits a store.EventNewMessage. It is shared by the UpdateNewMessage
 	// (users/basic groups) and UpdateNewChannelMessage (channels/supergroups)
 	// handlers, which carry an identically shaped Message field.
-	handleNewMessage := func(ctx context.Context, e tg.Entities, raw tg.MessageClass) error {
+	handleNewMessage := func(ctx context.Context, e tg.Entities, raw tg.MessageClass, pts int) error {
 		peerID := extractPeerID(raw)
 		msg, ok := convertMessage(raw, peerID)
 		if !ok {
@@ -53,6 +53,7 @@ func setupDispatcher(
 		applyExternalReplyTarget(&msg, raw, peerID, func(peer tg.PeerClass) domain.MessageTarget {
 			return messageTargetFromEntities(e, peer)
 		})
+		msg.AppliedPosition = pts
 		// Seed the name cache from every user entity this update carries, so a
 		// later update that omits a sender's User can still resolve the name (#161).
 		for id, user := range e.Users {
@@ -127,31 +128,46 @@ func setupDispatcher(
 	}
 
 	dispatcher.OnNewMessage(func(ctx context.Context, e tg.Entities, upd *tg.UpdateNewMessage) error {
-		return handleNewMessage(ctx, e, upd.Message)
+		return handleNewMessage(ctx, e, upd.Message, upd.Pts)
 	})
 
 	// UpdateNewChannelMessage covers channels and supergroups; UpdateNewMessage
 	// does not. Without this the chat list never bumps or increments unread for
 	// supergroup/channel messages during live updates (issue #116).
 	dispatcher.OnNewChannelMessage(func(ctx context.Context, e tg.Entities, upd *tg.UpdateNewChannelMessage) error {
-		return handleNewMessage(ctx, e, upd.Message)
+		return handleNewMessage(ctx, e, upd.Message, upd.Pts)
 	})
 
 	// handleEditMessage converts an edited message and emits EventEditMessage.
 	// Shared by UpdateEditMessage (users/basic groups) and UpdateEditChannelMessage
 	// (channels/supergroups). No sender-name enrichment: an edit only changes the
 	// message body, and the chat view re-renders from the already-stored sender.
-	handleEditMessage := func(ctx context.Context, e tg.Entities, raw tg.MessageClass) error {
+	//
+	// pts is what orders one copy of a change against another. A message belongs
+	// to one peer and a peer to one sequence, so the two update types never mix
+	// their counters on the same message (ADR 0016).
+	handleEditMessage := func(ctx context.Context, raw tg.MessageClass, pts int) error {
 		peerID := extractPeerID(raw)
 		msg, ok := convertMessage(raw, peerID)
 		if !ok {
 			return nil
 		}
-		applyExternalReplyTarget(&msg, raw, peerID, func(peer tg.PeerClass) domain.MessageTarget {
-			return messageTargetFromEntities(e, peer)
-		})
+		msg.AppliedPosition = pts
 		log.Debug("dispatcher: edit message",
 			zap.Int64("chat_id", msg.ChatID), zap.Int("msg_id", msg.ID))
+		// Reaction trace (#248): an edit writes the reaction set wholesale, so
+		// what it carried - or that it carried no reactions field at all - is
+		// what tells a stale copy apart from a real change.
+		if m, ok := raw.(*tg.Message); ok {
+			reactions, minSet, mine := "absent", false, false
+			if mr, has := m.GetReactions(); has {
+				reactions, minSet, mine = formatTGReactions(mr), mr.Min, hasMyRecentReaction(mr)
+			}
+			log.Debug("reaction: edit",
+				zap.Int64("chat_id", msg.ChatID), zap.Int("msg_id", msg.ID), zap.Int("pts", pts),
+				zap.String("reactions", reactions), zap.Bool("min", minSet), zap.Bool("my_recent", mine),
+				zap.Bool("edit_hide", m.EditHide))
+		}
 		evt := store.Event{Kind: store.EventEditMessage, Message: msg}
 		// A hidden edit that carries an unread reaction (1:1 chats deliver peer
 		// reactions this way) enriches the event for the reaction notification.
@@ -166,11 +182,11 @@ func setupDispatcher(
 	}
 
 	dispatcher.OnEditMessage(func(ctx context.Context, e tg.Entities, upd *tg.UpdateEditMessage) error {
-		return handleEditMessage(ctx, e, upd.Message)
+		return handleEditMessage(ctx, upd.Message, upd.Pts)
 	})
 
 	dispatcher.OnEditChannelMessage(func(ctx context.Context, e tg.Entities, upd *tg.UpdateEditChannelMessage) error {
-		return handleEditMessage(ctx, e, upd.Message)
+		return handleEditMessage(ctx, upd.Message, upd.Pts)
 	})
 
 	dispatcher.OnReadHistoryInbox(func(ctx context.Context, e tg.Entities, upd *tg.UpdateReadHistoryInbox) error {
@@ -198,6 +214,11 @@ func setupDispatcher(
 		if chatID == 0 {
 			return nil
 		}
+		log.Debug("reaction: update",
+			zap.Int64("chat_id", chatID), zap.Int("msg_id", upd.MsgID),
+			zap.String("reactions", formatTGReactions(upd.Reactions)),
+			zap.Bool("min", upd.Reactions.Min), zap.Bool("my_recent", hasMyRecentReaction(upd.Reactions)),
+			zap.Int("recent", len(upd.Reactions.RecentReactions)))
 		reactions := convertReactions(upd.Reactions)
 		emoji, date, _ := newestUnreadReaction(upd.Reactions)
 		select {

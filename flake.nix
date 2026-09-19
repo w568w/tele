@@ -29,7 +29,7 @@
 
           # Must be regenerated whenever go.mod/go.sum changes: run `nix build`,
           # copy the "got: sha256-..." hash it reports, and paste it here.
-          vendorHash = "sha256-47iIuh5BaVkBCbSv3g8+iaHW+ZEwdoHvaU+wkCCxdns=";
+          vendorHash = "sha256-/zQXrdb4LjQuwu5gyP0ZPi5ZmuJ+pd0eF9/E92YqK7s=";
 
           subPackages = [ "cmd/tele" ];
 
@@ -37,13 +37,18 @@
 
           # main.buildAPIID / main.buildAPIHash / main.appName are release-time
           # secrets/channel flags injected by .goreleaser.yaml — deliberately
-          # left unset here. Users supply real Telegram credentials via
-          # config.yml (see config.yml.example), which main.go already
-          # supports as a fallback.
+          # left unset here. A build from source falls back to the app key in
+          # internal/appkey, so this binary reaches the login screen without the
+          # person registering an application; a key in config.yml outranks it.
+          #
+          # The version symbol lives in internal/version, not in main: the
+          # linker silently ignores -X for a name that does not exist, so the
+          # wrong path here costs nothing at build time and reports "dev"
+          # forever. cmd/tele's TestHomebrewCoreContract pins the right one.
           ldflags = [
             "-s"
             "-w"
-            "-X main.version=${version}"
+            "-X github.com/sorokin-vladimir/tele/internal/version.Version=${version}"
           ];
 
           doCheck = true;

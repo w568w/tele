@@ -26,6 +26,15 @@ const (
 	// edited on another device, or cleared on send). The text is in Event.Draft.
 	EventDraftMessage
 	EventReadContents
+	// EventChannelGap reports that Telegram refused to say what a channel
+	// missed: the stored position is too far behind to be caught up from, so a
+	// range of messages will never arrive through the update stream. The
+	// channel is Event.ChatID.
+	EventChannelGap
+	// EventGapScan reports the same thing about the account's own state, which
+	// covers every chat that is not a channel and names none of them. What is
+	// missing can only be found by asking Telegram where each chat now ends.
+	EventGapScan
 )
 
 type Event struct {

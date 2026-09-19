@@ -90,12 +90,38 @@ The overlay opens on whatever is known at once and fills in the rest when
 Telegram answers. Mute is absent for someone you have never messaged: there is
 no chat to mute, and a guessed state would be worse than none.
 
+## Customizing keybindings
+
+Override default keys in the `keybindings:` section of
+`~/.config/tele/config.yml`. The generated config already lists **every action
+with its current default keys**, commented out - just uncomment a line and
+change the key(s). Bindings are grouped by **context**, then by **action**:
+
+```yaml
+keybindings:
+  chat:
+    reply: "R" # a single key
+    go_top: ["g g", "gg"] # several keys for one action
+  chatlist:
+    confirm: "l"
+```
+
+- **Replace semantics:** the keys you list become the _only_ keys for that
+  action in that context. Actions you don't mention keep their defaults.
+- **Chords:** a multi-key sequence is written as space-separated key tokens -
+  `"g g"` means press `g` then `g`. Tokens use the terminal key names
+  (`ctrl+d`, `enter`, `esc`, `space`, `up`, ...).
+- **Conflicts** (an unknown action/context, an empty key, a key reused for two
+  actions, or a single key that shadows a chord) are logged as warnings on
+  startup and skipped or applied last-wins; a bad section never crashes the app.
+
+**Contexts:** `global`, `folders`, `chatlist`, `chat`, `composer`, `search`,
+`context_menu`, `delete_submenu`, `chat_menu`, `folder_submenu`, `filepicker`.
+
 ## Configurable actions
 
-These are the action names usable as YAML keys in the `keybindings:` section of
-`~/.config/tele/config.yml` (grouped by `context`). Listing keys for an action
-replaces that action's defaults in that context; unlisted actions keep theirs.
-A chord is space-separated key tokens (`"g g"` = press `g` then `g`).
+These are the action names usable as YAML keys in the `keybindings:` section
+(grouped by `context`).
 
 ### Focus & app - context `global`
 

@@ -27,6 +27,12 @@ type Client interface {
 	// JoinChannel explicitly joins a channel or supergroup. Callers must not use
 	// it as a prerequisite for discussion sends: guest sending is tried first.
 	JoinChannel(ctx context.Context, peer domain.Peer) error
+	// GetHistoryAfter fetches messages newer than afterID, oldest first. It is
+	// how a gap is closed: the update stream fills the tail of a chat and
+	// nothing else does, so a range it missed can only come back by asking for
+	// it. A page whose newest message is not past afterID means there is
+	// nothing newer to fetch.
+	GetHistoryAfter(ctx context.Context, peer domain.Peer, afterID int, limit int) ([]domain.Message, error)
 	// RefreshMessage re-fetches a single message to obtain fresh media file
 	// references (Telegram FileReferences expire).
 	RefreshMessage(ctx context.Context, peer domain.Peer, msgID int) (domain.Message, error)

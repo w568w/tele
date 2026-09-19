@@ -95,7 +95,9 @@ var liveObservations = map[string]liveObservation{
 // copies them: the code that acts on them reads the config where it acts, so
 // installing the new config is the whole of applying them.
 var readAtPointOfUse = map[string]bool{
-	"ui.notification_preview":   true, // internal/core reads o.Config() as it decides
+	"ui.notifications.desktop":  true, // internal/core reads o.Config() at the sink
+	"ui.notifications.toast":    true, // internal/core reads o.Config() at the sink
+	"ui.notifications.preview":  true, // internal/core reads o.Config() as it decides
 	"photos.eager_full_quality": true, // root_download.go reads m.cfg as it downloads
 }
 

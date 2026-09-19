@@ -2,13 +2,11 @@ package tg
 
 import (
 	"context"
-	"net"
 	"os"
 	"sync"
 
 	"github.com/gotd/log/logzap"
 	"go.uber.org/zap"
-	"golang.org/x/net/proxy"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
@@ -26,27 +24,30 @@ import (
 
 // GotdClient wraps the gotd telegram client and implements the Client interface
 type GotdClient struct {
-	mu           sync.RWMutex
-	api          *tg.Client
-	mustDeliver  chan store.Event
-	droppable    chan store.Event
-	updates      chan store.Event
-	peers        map[int64]domain.Peer
-	log          *zap.Logger
-	traceLog     *zap.Logger
-	suppressMu   sync.Mutex
-	suppressIDs  map[int]struct{}
-	stateStorage updates.StateStorage
-
+	mu            sync.RWMutex
+	api           *tg.Client
+	mustDeliver   chan store.Event
+	droppable     chan store.Event
+	updates       chan store.Event
+	peers         map[int64]domain.Peer
+	log           *zap.Logger
+	traceLog      *zap.Logger
+	suppressMu    sync.Mutex
+	suppressIDs   map[int]struct{}
+	stateStorage  updates.StateStorage
 	customEmojiMu sync.RWMutex
 	customEmoji   map[int64]string
+	// resolver is how this client reaches Telegram: directly, or through the
+	// proxy the config named. Handed in rather than built here, because a proxy
+	// that cannot be reached has to stop the start before anything is drawn.
+	resolver dcs.Resolver
 	// senderNames remembers userID -> display name across updates and history
 	// fetches so a live update that omits the sender's entity still resolves the
 	// author instead of rendering "?" (#161).
 	senderNames *nameCache
 }
 
-func NewGotdClient(log *zap.Logger, stateStorage updates.StateStorage, trace bool) *GotdClient {
+func NewGotdClient(log *zap.Logger, stateStorage updates.StateStorage, trace bool, resolver dcs.Resolver) *GotdClient {
 	traceLog := zap.NewNop()
 	if trace {
 		traceLog = log
@@ -60,6 +61,7 @@ func NewGotdClient(log *zap.Logger, stateStorage updates.StateStorage, trace boo
 		traceLog:     traceLog,
 		suppressIDs:  make(map[int]struct{}),
 		stateStorage: stateStorage,
+		resolver:     resolver,
 		senderNames:  newNameCache(),
 
 		customEmoji: make(map[int64]string),
@@ -108,6 +110,45 @@ func (c *GotdClient) Connect(ctx context.Context, cfg *config.Config, af *AuthFl
 		// gotd v0.154.0 changed Logger from *zap.Logger to gotd/log.Logger;
 		// wrap our zap logger with the logzap adapter to keep zap out of gotd's core graph.
 		Logger: logzap.New(c.log.Named("updates")),
+		// gotd resets the channel's position and carries on, and says so here.
+		// The messages between the old position and the new one are not in that
+		// difference and never will be: recovering them is the application's
+		// job, and the manager documents that it is not doing it. Left to the
+		// default this is a log line and a hole in the chat (#262).
+		OnChannelTooLong: func(channelID int64) {
+			c.log.Warn("channel fell too far behind; recording a gap", zap.Int64("channel_id", channelID))
+			// mustDeliver rather than droppable, and for both reasons: a
+			// dropped gap is a hole nothing will ever look for again, and the
+			// mark has to be taken before the messages that follow it move the
+			// tail past the hole. Same channel as those messages is the only
+			// way the order is guaranteed.
+			select {
+			case c.mustDeliver <- store.Event{Kind: store.EventChannelGap, ChatID: channelID}:
+			case <-ctx.Done():
+			}
+		},
+		// The same, for the account's own state, which every chat that is not a
+		// channel shares. It names nobody, so the receiver has to go and look.
+		OnTooLong: func() {
+			c.log.Warn("account state fell too far behind; scanning for gaps")
+			select {
+			case c.mustDeliver <- store.Event{Kind: store.EventGapScan}:
+			case <-ctx.Done():
+			}
+		},
+		// Not a gap but a channel nothing is listening to for the rest of the
+		// session. Wired only so it is visible: without it the default logger
+		// swallows it and the channel goes quiet with no explanation.
+		OnLoadChannelStateFailed: func(channelID int64) {
+			c.log.Error("channel state could not be loaded; it will receive no updates this session",
+				zap.Int64("channel_id", channelID))
+		},
+		// channelDiffAPI below strips the server-side cooldown that used to space
+		// out getChannelDifference, so bound the calls in flight here instead
+		// (#266). Every tracked channel asks for its difference at startup and
+		// again on every gap; unbounded, that is one burst per channel against a
+		// per-account method rate limit.
+		MaxChannelDifferenceConcurrency: maxChannelDiffConcurrency,
 	}
 	// Persist channel access hashes so channels are re-registered at startup and
 	// UpdateChannelTooLong after a long idle is acted upon instead of dropped
@@ -167,25 +208,16 @@ func (c *GotdClient) Connect(ctx context.Context, cfg *config.Config, af *AuthFl
 		}
 	}()
 
-	dialer := proxy.FromEnvironment()
-	if dialer != proxy.Direct {
-		c.log.Info("using system proxy from ALL_PROXY")
-	}
-	resolver := dcs.Plain(dcs.PlainOptions{
-		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if cd, ok := dialer.(proxy.ContextDialer); ok {
-				return cd.DialContext(ctx, network, addr)
-			}
-			return dialer.Dial(network, addr)
-		},
-	})
-
 	c.log.Info("gotd client", zap.String("gotd", gotdVersion()))
 
 	tc := telegram.NewClient(cfg.Telegram.APIID, cfg.Telegram.APIHash, telegram.Options{
 		UpdateHandler:  hook,
 		SessionStorage: sess,
-		Resolver:       resolver,
+		// One resolver for every data centre this client ever reaches, so a
+		// photo from a media DC takes the same route as the message it came
+		// with. It is built before the interface exists, from the proxy section
+		// of the config (ADR 0017).
+		Resolver: c.resolver,
 		// The "v" field carries the application version on every line, so gotd's
 		// own stamp of the same name is dropped and reported once above instead.
 		Logger: logzap.New(withoutField(c.log, "v")),
@@ -240,7 +272,12 @@ func (c *GotdClient) Connect(ctx context.Context, cfg *config.Config, af *AuthFl
 		c.api = tc.API()
 		c.mu.Unlock()
 
-		return manager.Run(ctx, tc.API(), self.ID, updates.AuthOptions{
+		// Two wrappers over the same API, one per defect in the manager's gap
+		// handling: the channel difference carries a cooldown that must not be
+		// obeyed (#266), and a common difference carries updates the manager
+		// then drops (#267). Each dies on its own when its upstream fix ships.
+		diffAPI := newCommonDiffAPI(newChannelDiffAPI(tc.API(), c.log), dispatcher, c.log)
+		return manager.Run(ctx, diffAPI, self.ID, updates.AuthOptions{
 			OnStart: func(ctx context.Context) {
 				c.log.Debug("updates manager started, signalling ready")
 				close(readyCh)

@@ -74,6 +74,22 @@ func TokenKeys() []string {
 // color: the attribute is not set, and whatever is behind shows through.
 func IsNone(c color.Color) bool { return isNone(c) }
 
+// IsDarkColor reports whether white reads better than black on c. It answers
+// for one colour the question IsDark answers for the terminal, and it is what a
+// component asks when a canvas is painted behind something the theme does not
+// own: the slot says what the terminal is, the canvas says what is actually
+// behind the pixels, and the two disagree whenever a theme sits in the slot it
+// was not written for.
+//
+// Only meaningful for a colour: none has nothing behind it to judge, so callers
+// screen it with IsNone first.
+func IsDarkColor(c color.Color) bool { return luminance(c) <= darkColorMax }
+
+// darkColorMax is the relative luminance where contrast against white and
+// against black are equal, from the WCAG ratio: 1.05/(L+0.05) == (L+0.05)/0.05.
+// It is not the midpoint, because the ratio is not linear in luminance.
+const darkColorMax = 0.1791
+
 // isNone reports whether c is the absence of color rather than a color.
 func isNone(c color.Color) bool {
 	if c == nil {

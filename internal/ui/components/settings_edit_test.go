@@ -75,8 +75,8 @@ func TestSettingsEdit_ATogglePressedWritesTheFile(t *testing.T) {
 	m, changed := press(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	assert.True(t, changed, "the app is told to apply it")
-	assert.False(t, store.Current().UI.NotificationPreview)
-	assert.True(t, fileContains(t, path, "notification_preview: false"))
+	assert.False(t, store.Current().UI.Notifications.Preview)
+	assert.True(t, fileContains(t, path, "preview: false"))
 	assert.Contains(t, rowFor(t, m, "Notification preview"), "off", "and the row shows it")
 }
 

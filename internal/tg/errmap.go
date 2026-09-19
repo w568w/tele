@@ -101,6 +101,13 @@ func classifyTgErr(e *tgerr.Error) (telerr.Kind, telerr.Reason, time.Duration) {
 	if e.Type == "CHAT_GUEST_SEND_FORBIDDEN" {
 		return telerr.Forbidden, telerr.ReasonGuestSendForbidden, 0
 	}
+	// Ahead of the codes: a refused app key arrives as a 406, which the code
+	// table would otherwise read as an expired session and send the person into
+	// a login that offers the same key again.
+	switch e.Type {
+	case "API_ID_PUBLISHED_FLOOD", "API_ID_INVALID":
+		return telerr.AppKeyBlocked, "", 0
+	}
 	switch {
 	case e.Code == 420:
 		// FLOOD_WAIT, FLOOD_PREMIUM_WAIT and SLOWMODE_WAIT all carry the wait

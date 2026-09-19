@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS messages (
 	PRIMARY KEY (chat_id, msg_id)
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat_date ON messages(chat_id, date);
+CREATE TABLE IF NOT EXISTS chat_gap (
+	chat_id      INTEGER PRIMARY KEY,
+	after_msg_id INTEGER NOT NULL
+);
 `
 
 // MaxMessagesPerChat bounds how many recent messages are kept in memory per

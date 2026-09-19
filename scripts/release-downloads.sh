@@ -4,13 +4,13 @@
 # total. Betas are included (they are prerelease GitHub tags).
 #
 # What the numbers cover: every package manager tele ships through — Homebrew,
-# AUR (tele-bin), Scoop, winget, and the Nix flake — fetches its artifact from
-# the GitHub release assets. So each `brew install` / `scoop install` /
-# `yay -S` / `winget install` / nix build increments the GitHub downloadCount.
-# That means these per-asset counts already fold in all of those channels; they
-# must NOT be summed on top or they double count. Only Gemfury (apt/dnf/apk) and
-# the Snap store serve bytes from their own infra and are invisible here — query
-# `snapcraft metrics tele` separately for Snap.
+# Scoop, winget, and the Nix flake — fetches its artifact from the GitHub
+# release assets. So each `brew install` / `scoop install` / `winget install` /
+# nix build increments the GitHub downloadCount. That means these per-asset
+# counts already fold in all of those channels; they must NOT be summed on top
+# or they double count. Gemfury (apt/dnf/apk) serves bytes from its own infra
+# and is invisible here. Snap is not published yet; once it is, query
+# `snapcraft metrics` for it separately.
 #
 # checksums.txt, *.sigstore.json and *.sbom.json are excluded: those are pulled
 # by verification tooling and crawlers, not by users installing tele, so they

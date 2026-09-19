@@ -18,6 +18,12 @@ type Kind string
 const (
 	// Unauthorized means the session is invalid or missing. Needs auth.
 	Unauthorized Kind = "unauthorized"
+	// AppKeyBlocked means Telegram refused the app key this binary runs on,
+	// rather than the session it holds. Signing in again cannot help: the same
+	// key is offered every time. The remedy is a different key - the person's
+	// own in the config, or a build carrying another one - which makes this
+	// terminal wherever Unauthorized would be worth waiting out.
+	AppKeyBlocked Kind = "app_key_blocked"
 	// RateLimited means Telegram asked us to wait. Carries RetryAfter.
 	RateLimited Kind = "rate_limited"
 	// PeerNotFound means the peer is unknown or inaccessible.

@@ -1,6 +1,32 @@
+# The app key. Leave it out and tele uses the one built into the binary, which
+# is what makes a fresh install log in without a trip to my.telegram.org. Fill
+# both in to use a key of your own instead - it outranks the built-in one, and
+# it is the fix if Telegram ever stops accepting that key. See the App key
+# section of the README.
 telegram:
-  api_id: YOUR_API_ID
-  api_hash: YOUR_API_HASH
+  # api_id: 123456
+  # api_hash: "your api hash"
+
+# How tele reaches Telegram. Leave this out and it uses the ALL_PROXY
+# environment variable if you have one, and a direct connection otherwise -
+# that variable is deprecated and will be removed, so move it here when
+# convenient. type takes auto, direct, mtproto or socks5; the route applies to
+# every connection, downloads included, and changes take effect on restart.
+# See the Proxy section of docs/configuration.md.
+#
+# proxy:
+#   type: mtproto
+#   server: 127.0.0.1
+#   port: 1443
+#   # As the proxy published it: hex or base64url, plain, dd or ee.
+#   secret: ee0123456789abcdef0123456789abcdef6578616d706c652e636f6d
+#
+# proxy:
+#   type: socks5
+#   server: 10.0.0.1
+#   port: 1080
+#   username: me       # both or neither
+#   password: hunter2
 
 # Where this account's state lives: the Telegram session, the local database,
 # and the lock that keeps a second instance out. Defaults to
@@ -9,7 +35,6 @@ telegram:
 
 ui:
   history_limit: 50
-  notification_preview: true  # set false to omit message text from desktop notifications
 
   # Themes. Leaving this out gives the built-in tele-dark and tele-light,
   # switched by the terminal background. Name one theme to use it whatever the
@@ -24,6 +49,25 @@ ui:
   # theme:
   #   dark: gruvbox-dark
   #   light: solarized-light
+
+  # A new message reaches you two ways, switched separately here. Neither
+  # switch touches the chat list: with both off, the row still highlights and
+  # the chat still moves up.
+  notifications:
+    desktop: true   # hand it to the OS notification service
+    toast: true     # draw it in a corner of tele's own window
+    # What a notification says, rather than where it goes: false sends the
+    # sender's name and no message text, to both of the above.
+    preview: true
+
+  # Where toasts appear. Errors, warnings and confirmations go to error_zone;
+  # notifications go to notify_zone. Both take bottom-right or top-right, and
+  # naming the same corner for both stacks them together. The bottom-left
+  # corner is not offered: it is kept for the key-press overlay.
+  toasts:
+    error_zone: bottom-right
+    notify_zone: top-right
+    max_visible: 3  # per corner; the rest are counted, not drawn
 
 photos:
   eager_full_quality: true  # download full resolution in background on chat open

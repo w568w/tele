@@ -11,6 +11,147 @@ Older releases are at <https://github.com/sorokin-vladimir/tele/releases>.
 
 ## [Unreleased]
 
+## [1.11.7] - 2026-09-16
+
+### Added
+
+- A `proxy` section in the config: an MTProto proxy - the kind a `tg://proxy` or
+  `t.me/proxy` link describes, plain, `dd` and fake-TLS `ee` secrets alike - or a
+  SOCKS5 one with a username and password. It applies to `tele` alone rather than
+  to every program in your shell, and every connection takes it, photos, voice
+  notes and file downloads included. See the Proxy section of
+  [docs/configuration.md](docs/configuration.md#proxy).
+- A proxy tele cannot read or cannot reach now stops the start and says which key
+  is wrong, in which file, and how to switch the proxy off on purpose. Every
+  other setting falls back to its default when it is wrong; a route does not,
+  because the value it would fall back to is a direct connection to Telegram -
+  the one thing the section was written to avoid.
+
+### Deprecated
+
+- The `ALL_PROXY` environment variable. It is still read when `proxy.type` is
+  `auto`, which is what an untouched config says, so nothing changes for you
+  today; tele now says once at launch that it is in use. Move it into the
+  `proxy` section, where it applies to tele alone and can describe an MTProto
+  proxy as well.
+
+## [1.11.6] - 2026-09-16
+
+### Fixed
+
+- A message that a bot rewrites in place now updates on screen. Telegram marks
+  such an edit as one clients must show as unmodified, and tele read that as
+  "the text did not change", so a bot streaming a long answer left its opening
+  words on screen and nothing after them. Being edited and being labelled as
+  edited are now two separate facts: the new text always lands, and the "edited"
+  mark still stays off wherever Telegram asks for it.
+- A message no longer sticks at an old version after a hiccup in the update
+  stream. When events go missing, tele asks Telegram what it missed, and the
+  answer was being fed back through the very queue the hiccup had jammed: the
+  account caught up, the counters agreed, and the changes themselves were thrown
+  away. A message rewritten while that was happening kept whatever it said
+  beforehand, which is most visible with a bot that streams its reply. What the
+  catch-up brings back is now applied directly, and a change that arrives twice
+  or out of order is recognised and ignored rather than undoing a newer one.
+
+## [1.11.5] - 2026-09-11
+
+### Added
+
+- iTerm2 3.7.0 and newer gets inline photos at full quality instead of block
+  art. The README says which terminals `photos.mode: auto` draws images in, so
+  choosing a terminal no longer means reading the source.
+
+### Fixed
+
+- A busy group no longer goes quiet for five minutes at a time. Telegram
+  attaches a cooldown to every catch-up request, and the update library read it
+  as a ban on asking again, discarding everything the group received until it
+  ran out. Each catch-up armed a fresh cooldown, so an active supergroup
+  alternated between five minutes of silence and a burst of backlog arriving at
+  once. The cooldown is now ignored and the number of catch-up requests in
+  flight is capped instead.
+- Typing in the composer stays readable when the terminal switches between a
+  light and a dark scheme. The text area held on to the colours of the scheme it
+  started in, so a switch to light put dark text on a dark cursor line, and a
+  theme with a light canvas of its own hit the same thing in reverse on the way
+  back to dark. The composer now takes its palette from whatever is painted
+  behind it rather than from the scheme that was in effect at startup.
+- Photos draw in iTerm2. Every placeholder cell now names the image id in full,
+  including the top byte the specification lets a sender leave out. iTerm2 read
+  the missing byte as `0xff`, looked for an image nobody had sent, and left the
+  photo as blank space.
+- A photo is no longer drawn in place of one from an earlier run. The terminal
+  keeps the images of a process that has exited and iTerm2 answers with the
+  first one carrying the id it was asked for, so a second run in the same tab
+  showed the pictures of the first. Numbering now starts somewhere random,
+  which also keeps tele out of the way of other programs in that terminal.
+
+## [1.11.4] - 2026-09-09
+
+### Added
+
+- The desktop notification and the in-app toast are switched separately:
+  `ui.notifications.desktop` and `ui.notifications.toast`, both on. A
+  notification daemon can only reach the first, so turning the second off was
+  not possible from anywhere. With both off a new message still highlights its
+  row and moves the chat up - that is the message arriving, not an
+  interruption.
+- `ui.toasts` is documented. The keys placing toasts in a corner and capping how
+  many show at once have worked since 1.8.1 but appeared in neither the README
+  nor `config.yml.example`, so the only way to find them was to read the source.
+
+### Fixed
+
+- Messages a busy group ran ahead of tele with now arrive. Once its recorded
+  position falls too far behind, Telegram refuses to say what a chat missed and
+  hands the problem back; nothing in tele ever asked for messages newer than the
+  ones it held, so the update stream was the only thing that could fill the
+  bottom of a chat and a range it missed was missed for good, with nothing on
+  screen to say so. The hole is written down when it opens, survives a restart,
+  and is fetched on its own. A chat you are reading is repaired while you read
+  it, so it keeps filling even while its updates are stalled.
+- A chat whose hole is wider than it could hold is reloaded rather than
+  patched: the stored history is replaced by a fresh page, and scrolling up
+  loads the rest back as it always did. Two ranges that do not meet are never
+  drawn as one conversation.
+
+### Changed
+
+- A message edited while tele was not listening comes back with its current
+  text when the history around it is fetched again. What the store already held
+  used to win, which kept the older wording until the chat was reopened for some
+  other reason.
+- `ui.notification_preview` is now `ui.notifications.preview`, alongside the two
+  switches. The old spelling is still read and tele says so once; nothing
+  changes for you until you move the line. Its help said the setting was about
+  desktop notifications - it applies to the toast as well, and has since 1.10,
+  when both were given the same rendered text.
+
+## [1.11.3] - 2026-09-08
+
+### Added
+
+- `tele` is in homebrew-core: `brew install tele` works without tapping
+  anything first. The tap stays where it was and still carries the beta
+  channel; the two builds differ in one way, described under App key in the
+  README.
+
+### Fixed
+
+- `brew install tele` from homebrew-core now works out of the box. A build
+  compiled from source used to exit at startup asking to go and register a
+  Telegram application before it drew anything; it starts and reaches the login
+  screen like every other build. The same applies to the Nix flake, the BSD
+  ports and a plain `go build`.
+- Telegram refusing the application rather than the session is now reported as
+  that. It used to read as "session expired, sign in again", which sent people
+  into a login that could not succeed and parked queued messages on a session
+  that was never coming back.
+- The Nix flake reports the version it was built from. It passed the version to
+  a symbol that does not exist, which the linker ignores without complaint, so
+  every flake build called itself `dev`.
+
 ## [1.11.2] - 2026-08-21
 
 Entries marked *already in 1.11.1* went out in that release and were left out of

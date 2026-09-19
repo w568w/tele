@@ -56,20 +56,20 @@ func TestLoad_OutOfBoundsNumberIsRepairedAndReported(t *testing.T) {
 }
 
 func TestLoad_WrongTypeIsRepairedAndReported(t *testing.T) {
-	cfg := loadWith(t, "ui:\n  notification_preview: sometimes\n")
+	cfg := loadWith(t, "ui:\n  notifications:\n    preview: sometimes\n")
 
-	assert.True(t, cfg.UI.NotificationPreview)
+	assert.True(t, cfg.UI.Notifications.Preview)
 	require.Len(t, cfg.Warnings, 1)
-	assert.Contains(t, cfg.Warnings[0].Text, "ui.notification_preview")
+	assert.Contains(t, cfg.Warnings[0].Text, "ui.notifications.preview")
 }
 
 // Repair touches the key that is wrong and nothing else. A file with one bad
 // value is not a file to be reset.
 func TestLoad_RepairLeavesTheRestOfTheFileAlone(t *testing.T) {
-	cfg := loadWith(t, "ui:\n  history_limit: 0\n  notification_preview: false\n  toasts:\n    notify_zone: bottom-right\n")
+	cfg := loadWith(t, "ui:\n  history_limit: 0\n  notifications:\n    preview: false\n  toasts:\n    notify_zone: bottom-right\n")
 
 	assert.Equal(t, 50, cfg.UI.HistoryLimit, "repaired")
-	assert.False(t, cfg.UI.NotificationPreview, "kept")
+	assert.False(t, cfg.UI.Notifications.Preview, "kept")
 	assert.Equal(t, "bottom-right", cfg.UI.Toasts.NotifyZone, "kept")
 	require.Len(t, cfg.Warnings, 1)
 }

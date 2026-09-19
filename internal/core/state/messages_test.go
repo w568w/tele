@@ -47,6 +47,24 @@ func TestApplyIncoming_ReadElsewhereReportsNoUnreadChange(t *testing.T) {
 	require.Len(t, st.Messages(1), 1)
 }
 
+// The same message can be delivered twice: the wire and a recovered difference
+// both carry it. The second copy is not news, and anything that fires once per
+// arrival must not fire again (ADR 0016).
+func TestApplyIncoming_SecondCopyIsNotNews(t *testing.T) {
+	s, st := newState(t)
+	st.SetChat(domain.Chat{ID: 1, Title: "A"})
+	msg := domain.Message{ID: 5, ChatID: 1, Text: "hi"}
+
+	_, ok := s.ApplyIncoming(msg)
+	require.True(t, ok)
+
+	_, ok = s.ApplyIncoming(msg)
+	assert.False(t, ok, "the client already heard about this one")
+	require.Len(t, st.Messages(1), 1, "and it is stored once")
+	c, _ := st.GetChat(1)
+	assert.Equal(t, 1, c.UnreadCount, "the counter did not move twice")
+}
+
 func TestApplyIncoming_OutgoingDoesNotCount(t *testing.T) {
 	s, st := newState(t)
 	st.SetChat(domain.Chat{ID: 1})
@@ -118,26 +136,129 @@ func TestApplyEdit_AlreadyEditedMessageStillAppliesReactions(t *testing.T) {
 	assert.True(t, chg.UnreadReactionChanged, "the chat's unread-reaction count moved")
 }
 
-// Telegram delivers a 1:1 peer reaction as a hidden edit with no EditDate. It
-// must apply the reactions and must NOT flip the message to "edited" (#118,
-// #160), so it surfaces as a reactions change, not an edit.
-func TestApplyEdit_HiddenEditSurfacesAsReactions(t *testing.T) {
+// A bot streaming a long reply rewrites one message over and over, and Telegram
+// hides the label on every one of those edits. The new text must still land:
+// the flag is about the label and says nothing about the content (#269).
+func TestApplyEdit_HiddenEditUpdatesTheText(t *testing.T) {
+	s, st := newState(t)
+	st.SetChat(domain.Chat{ID: 1})
+	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "thinking"})
+	when := time.Now()
+
+	chg, ok := s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "the whole answer", EditDate: &when, EditHidden: true,
+	})
+
+	require.True(t, ok)
+	assert.Equal(t, state.ChangeMessageEdited, chg.Kind)
+	got := st.Messages(1)[0]
+	assert.Equal(t, "the whole answer", got.Text)
+	assert.NotNil(t, got.EditDate, "the edit happened and the time is recorded")
+	assert.False(t, got.ShowsEdited(), "Telegram asked for no label on this one")
+}
+
+// Delivery is at least once, so the same edit can arrive twice and a late copy
+// can arrive after a newer one. Position is what separates them: an edit at or
+// behind what the message has already applied changes nothing and tells the
+// client nothing (ADR 0016).
+func TestApplyEdit_LateCopyOfAnEditIsRefused(t *testing.T) {
+	s, st := newState(t)
+	st.SetChat(domain.Chat{ID: 1})
+	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "first"})
+	when := time.Now()
+
+	_, ok := s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "second", EditDate: &when, AppliedPosition: 20,
+	})
+	require.True(t, ok)
+
+	// The same one again, and then one from before it.
+	_, ok = s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "second", EditDate: &when, AppliedPosition: 20,
+	})
+	assert.False(t, ok, "a duplicate changes nothing")
+
+	_, ok = s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "stale", EditDate: &when, AppliedPosition: 19,
+	})
+	assert.False(t, ok, "a copy from before the stored one changes nothing")
+	assert.Equal(t, "second", st.Messages(1)[0].Text, "the newer text stands")
+
+	// And the stream carries on from where it was.
+	_, ok = s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "third", EditDate: &when, AppliedPosition: 21,
+	})
+	require.True(t, ok)
+	assert.Equal(t, "third", st.Messages(1)[0].Text)
+}
+
+// Not every source carries a position: our own optimistic edit has none until
+// the server answers, and a refetched history page has none at all. They apply
+// unconditionally and leave the stored position alone.
+func TestApplyEdit_WithoutAPositionAlwaysApplies(t *testing.T) {
+	s, st := newState(t)
+	st.SetChat(domain.Chat{ID: 1})
+	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "first"})
+	when := time.Now()
+
+	_, ok := s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "second", EditDate: &when, AppliedPosition: 20,
+	})
+	require.True(t, ok)
+
+	_, ok = s.ApplyEdit(domain.Message{ID: 5, ChatID: 1, Text: "from a page", EditDate: &when})
+	require.True(t, ok, "a copy with no position is not a late copy")
+	assert.Equal(t, "from a page", st.Messages(1)[0].Text)
+
+	// The recorded position did not move, so the stream still picks up at 21.
+	_, ok = s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "third", EditDate: &when, AppliedPosition: 21,
+	})
+	require.True(t, ok)
+	assert.Equal(t, "third", st.Messages(1)[0].Text)
+}
+
+// Telegram delivers a 1:1 peer reaction as a hidden edit carrying the message's
+// whole current state. The reactions must be applied and the message must not
+// be labelled edited (#118, #160).
+func TestApplyEdit_HiddenEditAppliesReactionsWithoutTheLabel(t *testing.T) {
 	s, st := newState(t)
 	st.SetChat(domain.Chat{ID: 1})
 	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "hi"})
+	when := time.Now()
 
 	chg, ok := s.ApplyEdit(domain.Message{
-		ID: 5, ChatID: 1, Text: "hi",
+		ID: 5, ChatID: 1, Text: "hi", EditDate: &when, EditHidden: true,
 		Reactions:          []domain.Reaction{{Emoji: "👍", Count: 1}},
 		HasUnreadReactions: true,
 	})
 
 	require.True(t, ok)
-	assert.Equal(t, state.ChangeMessageReactions, chg.Kind)
 	assert.Equal(t, 5, chg.MsgID)
 	assert.True(t, chg.ReactionsUnread)
 	assert.True(t, chg.UnreadReactionChanged)
-	assert.Nil(t, st.Messages(1)[0].EditDate, "a hidden edit must not mark the message edited")
+	got := st.Messages(1)[0]
+	require.Len(t, got.Reactions, 1, "the reaction carried by the hidden edit must be applied")
+	assert.False(t, got.ShowsEdited(), "a hidden edit must not label the message edited")
+}
+
+// An edit update for a message nobody ever edited carries no edit date at all.
+// Applying it must not invent one.
+func TestApplyEdit_WithoutAnEditDateLeavesTheMessageUnlabelled(t *testing.T) {
+	s, st := newState(t)
+	st.SetChat(domain.Chat{ID: 1})
+	st.AppendMessage(domain.Message{ID: 5, ChatID: 1, Text: "hi"})
+
+	_, ok := s.ApplyEdit(domain.Message{
+		ID: 5, ChatID: 1, Text: "hi",
+		Reactions: []domain.Reaction{{Emoji: "👍", Count: 1}},
+	})
+
+	require.True(t, ok)
+	got := st.Messages(1)[0]
+	assert.Nil(t, got.EditDate, "nothing was edited, so nothing records an edit time")
+	assert.False(t, got.ShowsEdited())
+	require.Len(t, got.Reactions, 1)
 }
 
 func TestApplyReactions_TracksUnreadOnce(t *testing.T) {
@@ -187,9 +308,10 @@ func TestApplyDelete_WithoutChatIDResolvesThroughStore(t *testing.T) {
 	assert.Empty(t, st.Messages(1))
 }
 
-// ApplyHistory is how a fetched page of history enters state: the owner merges
-// it with what is already stored and commits the result, so projections rebuild
-// from one place rather than from a client's reply handler.
+// ApplyHistory is how a page replaces a chat's history outright, and
+// MergeHistory is how one joins what is already there. Both commit through
+// state, so projections rebuild from one place rather than from a client's
+// reply handler.
 func TestApplyHistory_StoresTheWindowAndPublishesOneChange(t *testing.T) {
 	s, st := newState(t)
 	var seen []state.Change
@@ -225,6 +347,39 @@ func TestApplyHistory_PreservesMessageThatArrivedDuringFetch(t *testing.T) {
 	require.Len(t, got, 3)
 	assert.Equal(t, []int{1, 2, 3}, []int{got[0].ID, got[1].ID, got[2].ID})
 	assert.Equal(t, "live", got[2].Text)
+}
+
+func TestMergeHistory_JoinsThePageAndPublishesOneChange(t *testing.T) {
+	s, st := newState(t)
+	var seen []state.Change
+	st.SetChat(domain.Chat{ID: 1})
+	st.SetMessages(1, []domain.Message{{ID: 3, ChatID: 1, Date: time.Unix(3, 0)}})
+	s.OnChange(func(c state.Change) { seen = append(seen, c) })
+
+	chg, ok := s.MergeHistory(1, []domain.Message{
+		{ID: 1, ChatID: 1, Date: time.Unix(1, 0)},
+		{ID: 2, ChatID: 1, Date: time.Unix(2, 0)},
+	})
+
+	require.True(t, ok)
+	assert.Equal(t, state.ChangeHistory, chg.Kind)
+	assert.Equal(t, int64(1), chg.ChatID)
+	assert.Len(t, st.Messages(1), 3, "the page joins what was held rather than replacing it")
+	assert.Len(t, seen, 1)
+}
+
+func TestMergeHistory_PublishesNothingForAPageThatAddsNothing(t *testing.T) {
+	s, st := newState(t)
+	var seen []state.Change
+	st.SetChat(domain.Chat{ID: 1})
+	held := []domain.Message{{ID: 1, ChatID: 1, Date: time.Unix(1, 0)}}
+	st.SetMessages(1, held)
+	s.OnChange(func(c state.Change) { seen = append(seen, c) })
+
+	_, ok := s.MergeHistory(1, held)
+
+	assert.False(t, ok, "reaching history the store already had is not news")
+	assert.Empty(t, seen)
 }
 
 // A refreshed file reference is not an edit: it changes how the media is

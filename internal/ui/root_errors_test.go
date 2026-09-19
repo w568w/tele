@@ -28,6 +28,14 @@ func TestErrText_KindToTextAndSeverity(t *testing.T) {
 			components.SeverityError,
 		},
 		{
+			"a blocked app key names the cause and both remedies",
+			&telerr.Error{Kind: telerr.AppKeyBlocked, Detail: "API_ID_PUBLISHED_FLOOD"},
+			"mark read: app key blocked by Telegram\n" +
+				"set your own telegram.api_id in the config,\n" +
+				"or install an official build (see the README)",
+			components.SeverityError,
+		},
+		{
 			"rate limited in minutes",
 			&telerr.Error{Kind: telerr.RateLimited, RetryAfter: 12 * time.Minute},
 			"mark read: too fast, retry in 12m",

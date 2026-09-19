@@ -1,0 +1,34 @@
+name: Homebrew core watch
+
+# Nobody publishes tele to homebrew-core: their `brew bump --auto` runs every
+# three hours and opens the version bump itself. That is convenient right up to
+# the moment it stops, because it stops silently - our release is green and
+# their formula just stays where it was. This job is the noticing.
+on:
+  schedule:
+    # Daily. The lag this watches for is measured in days, so anything more
+    # frequent only buys duplicate runs.
+    - cron: "27 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    # A fork inherits the schedule but neither the issues nor the reason to file
+    # them.
+    if: github.repository_owner == 'sorokin-vladimir'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the formula in homebrew-core
+        run: bash scripts/check-core-formula.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gh resolves :owner/:repo from the checkout's remote; naming it
+          # outright survives a checkout that has none.
+          GH_REPO: ${{ github.repository }}

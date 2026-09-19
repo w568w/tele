@@ -269,6 +269,10 @@ func OutboxReason(e domain.OutboxEntry) string {
 		return "chat is unreachable"
 	case telerr.NotFound:
 		return "chat no longer exists"
+	case telerr.AppKeyBlocked:
+		// One line, unlike the toast: this is the reminder that sits beside the
+		// message, and the remedies belong where there is room for them.
+		return "app key blocked by Telegram"
 	default:
 		return "unexpected error"
 	}

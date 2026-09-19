@@ -46,6 +46,11 @@ func (s *SQLiteStore) ClearForNewAccount(ownerID int64) {
 	if _, err = s.db.Exec(`DELETE FROM folder_filters`); err != nil {
 		s.log.Error("clear folder_filters failed", zap.Error(err))
 	}
+	// A gap is a fact about one account's history and means nothing under the
+	// next one, whose chats carry the same ids for different conversations.
+	if _, err = s.db.Exec(`DELETE FROM chat_gap`); err != nil {
+		s.log.Error("clear chat_gap failed", zap.Error(err))
+	}
 	if _, err = s.db.Exec(`UPDATE metadata SET value = ? WHERE key = 'owner_id'`, fmt.Sprint(ownerID)); err != nil {
 		s.log.Error("update owner_id failed", zap.Error(err))
 	}

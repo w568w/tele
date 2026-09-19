@@ -139,8 +139,9 @@ func Backoff(err error, attempts int) (time.Duration, bool) {
 		return maxBackoff, false
 	default:
 		// peer_not_found, forbidden, not_found, rejected, internal,
-		// stale_reference. All terminal: repeating the same request cannot
-		// change a refusal, a missing peer or content Telegram would not take.
+		// stale_reference, app_key_blocked. All terminal: repeating the same
+		// request cannot change a refusal, a missing peer, content Telegram
+		// would not take, or a key it has stopped accepting.
 		return 0, true
 	}
 }

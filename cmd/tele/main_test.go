@@ -2,7 +2,10 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -56,5 +59,57 @@ func TestStateDirPath_DoesNotCreateTheDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(got); !os.IsNotExist(err) {
 		t.Fatalf("directory should not exist, stat err = %v", err)
+	}
+}
+
+// The homebrew-core formula builds tele from source and then runs two commands,
+// matching their output: `tele -version`, and `tele -theme-dump tele-dark` for
+// something that does real work without a config file, a network or a terminal.
+// It also injects the version through a -ldflags path that no compiler checks:
+// name the wrong symbol and the build still succeeds, silently reporting "dev".
+//
+// Homebrew's CI is where all of that would otherwise break, on an autobump pull
+// request nobody here opened, for a release that already shipped. Anything this
+// test pins may only change together with a pull request to
+// Homebrew/homebrew-core.
+func TestHomebrewCoreContract(t *testing.T) {
+	const wantVersion = "9.9.9-contract"
+
+	// Built before HOME moves: the go command keeps its module and build caches
+	// under the home directory, and a temporary one would send it to fetch the
+	// whole module graph again.
+	bin := filepath.Join(t.TempDir(), "tele")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	build := exec.Command("go", "build",
+		"-ldflags", "-X github.com/sorokin-vladimir/tele/internal/version.Version="+wantVersion,
+		"-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building tele: %v\n%s", err, out)
+	}
+
+	// The formula's own invocation: no -config, and whatever HOME the test
+	// sandbox happens to have. Pointing HOME at a temporary directory keeps the
+	// run off the developer's real config and themes.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+
+	version, err := exec.Command(bin, "-version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("tele -version: %v\n%s", err, version)
+	}
+	if got := strings.TrimSpace(string(version)); got != wantVersion {
+		t.Fatalf("tele -version printed %q, want %q: the formula matches the version it built with", got, wantVersion)
+	}
+
+	dump, err := exec.Command(bin, "-theme-dump", "tele-dark").CombinedOutput()
+	if err != nil {
+		t.Fatalf("tele -theme-dump tele-dark: %v\n%s", err, dump)
+	}
+	if want := "dumped from tele-dark"; !strings.Contains(string(dump), want) {
+		t.Fatalf("tele -theme-dump tele-dark printed %q, want it to contain %q", dump, want)
 	}
 }

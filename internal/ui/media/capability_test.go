@@ -25,6 +25,54 @@ func TestDetectMode(t *testing.T) {
 		{"override kitty on plain", "kitty", map[string]string{"TERM": "xterm-256color"}, media.ModeKitty},
 		{"override blocks on kitty", "blocks", map[string]string{"TERM": "xterm-kitty"}, media.ModeBlocks},
 		{"override auto falls through", "auto", map[string]string{"TERM": "xterm-kitty"}, media.ModeKitty},
+		{
+			"iterm2 draws placeholders from 3.7",
+			"auto",
+			map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "3.7.0"},
+			media.ModeKitty,
+		},
+		{
+			"iterm2 beta counts as its release",
+			"auto",
+			map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "3.7.0beta10"},
+			media.ModeKitty,
+		},
+		{
+			"iterm2 before 3.7 stays on blocks",
+			"auto",
+			map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "3.6.9"},
+			media.ModeBlocks,
+		},
+		{
+			"iterm2 without a version stays on blocks",
+			"auto",
+			map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "iTerm.app"},
+			media.ModeBlocks,
+		},
+		{
+			"iterm2 over ssh is named by LC_TERMINAL",
+			"auto",
+			map[string]string{"TERM": "xterm-256color", "LC_TERMINAL": "iTerm2", "LC_TERMINAL_VERSION": "3.7.1"},
+			media.ModeKitty,
+		},
+		{
+			"iterm2 under tmux stays on blocks",
+			"auto",
+			map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "3.7.0", "TMUX": "/tmp/x"},
+			media.ModeBlocks,
+		},
+		{
+			"a later iterm2 major keeps drawing",
+			"auto",
+			map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "4.0.0"},
+			media.ModeKitty,
+		},
+		{
+			"a short iterm2 version is padded",
+			"auto",
+			map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM_PROGRAM_VERSION": "3.8"},
+			media.ModeKitty,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

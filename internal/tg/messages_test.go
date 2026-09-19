@@ -688,9 +688,11 @@ func TestConvertMessage_DocumentThumbSize(t *testing.T) {
 	assert.Equal(t, "m", msg.Document.ThumbSize)
 }
 
-func TestConvertMessage_HiddenEdit_NoEditDate(t *testing.T) {
-	// Telegram bumps edit_date when a reaction is added but sets edit_hide so
-	// clients don't show "edited". Our converter must honor edit_hide (#118).
+func TestConvertMessage_HiddenEdit_KeepsTheDateAndHidesTheLabel(t *testing.T) {
+	// Telegram bumps edit_date when a reaction is added, and sets edit_hide so
+	// clients don't show "edited" (#118). The two are separate facts: the edit
+	// is recorded, the label is not shown, and the text is carried either way
+	// (#269).
 	raw := &tg.Message{
 		ID:       7,
 		PeerID:   &tg.PeerUser{UserID: 10},
@@ -702,7 +704,10 @@ func TestConvertMessage_HiddenEdit_NoEditDate(t *testing.T) {
 	raw.FromID = &tg.PeerUser{UserID: 10}
 	msg, ok := convertMessage(raw, 10)
 	require.True(t, ok)
-	assert.Nil(t, msg.EditDate, "edit_hide must suppress the edited marker")
+	require.NotNil(t, msg.EditDate, "the edit date is what Telegram sent")
+	assert.True(t, msg.EditHidden)
+	assert.False(t, msg.ShowsEdited(), "edit_hide must suppress the edited marker")
+	assert.Equal(t, "hi", msg.Text, "the text of a hidden edit is still the text")
 }
 
 func TestConvertMessage_RealEdit_SetsEditDate(t *testing.T) {
@@ -718,6 +723,7 @@ func TestConvertMessage_RealEdit_SetsEditDate(t *testing.T) {
 	msg, ok := convertMessage(raw, 10)
 	require.True(t, ok)
 	require.NotNil(t, msg.EditDate, "a real edit keeps the edited marker")
+	assert.True(t, msg.ShowsEdited())
 }
 
 func TestBuildInputMediaUploadedPhoto(t *testing.T) {

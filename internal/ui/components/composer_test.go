@@ -812,6 +812,84 @@ func TestComposer_CounterColourIsThemeAware(t *testing.T) {
 		"the counter must not use the same colour on both themes")
 }
 
+// The textarea keeps a palette of its own and does not watch tele's theme, so a
+// slot change can leave it rendering the previous slot's colours (#242).
+//
+// Both directions are asserted through the same property: a composer that lived
+// through the change must look exactly like one built after it. What that
+// catches is a style held over, which is the defect; what it avoids is naming
+// the vendored component's colours here, which are not tele's to pin.
+func TestComposer_TextareaStylesDoNotOutliveASlotChange(t *testing.T) {
+	t.Cleanup(func() {
+		theme.SetSlots(theme.Slots{Dark: theme.TeleDark, Light: theme.TeleLight})
+		theme.Apply(true)
+	})
+
+	draft := func() *components.Composer {
+		c := components.NewComposer(60)
+		c.Focus()
+		c.SetValue("draft")
+		return c
+	}
+
+	// The built-ins, dark to light: the direction that shipped, where the
+	// textarea kept a dark cursor line under a terminal gone light.
+	theme.SetSlots(theme.Slots{Dark: theme.TeleDark, Light: theme.TeleLight})
+	theme.Apply(true)
+	switched := draft()
+	switched.View()
+	theme.Apply(false)
+	assert.Equal(t, draft().View(), switched.View(), "the dark slot's textarea styles outlived the switch to light")
+
+	// A light theme that paints a canvas, back to a dark one that does not: the
+	// inverse, where the painted background had nothing to clear it.
+	bg, err := theme.ParseColor("#dadada")
+	require.NoError(t, err)
+	fg, err := theme.ParseColor("#4e4e4e")
+	require.NoError(t, err)
+	painted := theme.TeleLight
+	painted.Name = "canvas-light-test"
+	painted.Background, painted.Text = bg, fg
+
+	theme.SetSlots(theme.Slots{Dark: theme.TeleDark, Light: painted})
+	theme.Apply(false)
+	switched = draft()
+	switched.View()
+	theme.Apply(true)
+	assert.Equal(t, draft().View(), switched.View(), "the painted canvas outlived the switch to dark")
+}
+
+// A theme that paints a canvas covers the terminal background over, so the
+// textarea's variant has to follow the canvas rather than the slot. Otherwise a
+// light-canvas theme in the dark slot draws dark-variant text on a light field.
+func TestComposer_TextareaVariantFollowsTheCanvasNotTheSlot(t *testing.T) {
+	t.Cleanup(func() {
+		theme.SetSlots(theme.Slots{Dark: theme.TeleDark, Light: theme.TeleLight})
+		theme.Apply(true)
+	})
+
+	bg, err := theme.ParseColor("#dadada")
+	require.NoError(t, err)
+	fg, err := theme.ParseColor("#4e4e4e")
+	require.NoError(t, err)
+	painted := theme.TeleLight
+	painted.Name = "canvas-light-test"
+	painted.Background, painted.Text = bg, fg
+
+	// The same painted theme in both slots, which is what `ui.theme: <name>`
+	// produces. Only the terminal background differs between the two renders,
+	// and it is the one thing the canvas makes irrelevant.
+	theme.SetSlots(theme.Slots{Dark: painted, Light: painted})
+
+	render := func(dark bool) string {
+		theme.Apply(dark)
+		c := components.NewComposer(60)
+		c.SetValue("draft")
+		return c.View()
+	}
+	assert.Equal(t, render(false), render(true), "the terminal background changed a composer the canvas fully covers")
+}
+
 func TestResolveEntitiesParsesMarkup(t *testing.T) {
 	c := components.NewComposer(40)
 	c.SetValue("привет **важно**")

@@ -257,7 +257,7 @@ func init() {
 // ahead of configuration.
 func SetSlots(s Slots) {
 	slots.Store(&s)
-	Apply(currentIsDark())
+	Apply(IsDark())
 }
 
 // Apply makes the theme for the given terminal background current. It is the
@@ -278,10 +278,11 @@ func Apply(dark bool) {
 	})
 }
 
-// currentIsDark reports the background the current theme was applied for,
-// defaulting to dark before anything has been applied. It lets SetSlots
-// reinstall without knowing what the terminal reported.
-func currentIsDark() bool {
+// IsDark reports whether the dark slot is current, defaulting to dark before
+// anything has been applied. It lets SetSlots reinstall without knowing what the
+// terminal reported, and it is what a component asks when it has to pick a
+// light or dark variant of something a theme does not own.
+func IsDark() bool {
 	if s := current.Load(); s != nil {
 		return s.dark
 	}

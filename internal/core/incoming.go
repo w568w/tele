@@ -107,8 +107,10 @@ func (o *Owner) publishFailure(f Failure) {
 func (o *Owner) Notifications() <-chan Notification { return o.notifications }
 
 // publishNotification drops rather than blocks: a client that stopped draining
-// must never stall the update loop. A dropped toast is not a lost notification —
-// the OS banner has already been raised from the same value.
+// must never stall the update loop, and a client that has stopped draining is
+// not drawing the toast anyway. It used to be worth saying that the desktop
+// notification carried the same value regardless; that sink can now be switched
+// off (#249), so the consolation is gone and the reason is the stall alone.
 func (o *Owner) publishNotification(n Notification) {
 	select {
 	case o.notifications <- n:

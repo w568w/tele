@@ -32,14 +32,24 @@ func newTestOwner(t *testing.T) (*Owner, chan store.Event, store.Store) {
 	return o, events, st
 }
 
-// newTestOwnerNotified is newTestOwner with a notifier the test can inspect and
-// message previews on, so a body is a body rather than "New message".
+// newTestOwnerNotified is newTestOwner with a notifier the test can inspect,
+// message previews on so a body is a body rather than "New message", and both
+// sinks on. A zero Config would have every switch off, which is the opposite of
+// what a fresh install does.
 func newTestOwnerNotified(t *testing.T, n Notifier) (*Owner, store.Store) {
 	t.Helper()
 	st := store.NewMemory()
+	return New(notifyConfig(true, true), zap.NewNop(), state.New(st), nil, n), st
+}
+
+// notifyConfig is a config with previews on and the two sinks as asked, so a
+// test names only the switch it is about.
+func notifyConfig(desktop, toast bool) *config.Config {
 	cfg := &config.Config{}
-	cfg.UI.NotificationPreview = true
-	return New(cfg, zap.NewNop(), state.New(st), nil, n), st
+	cfg.UI.Notifications.Preview = true
+	cfg.UI.Notifications.Desktop = desktop
+	cfg.UI.Notifications.Toast = toast
+	return cfg
 }
 
 func recvDelta(t *testing.T, ch <-chan project.Delta) (project.Delta, bool) {
@@ -166,6 +176,24 @@ func TestNotify_OneEventFeedsBothSinks(t *testing.T) {
 	}
 }
 
+// Delivery is at least once, so the wire and a recovered difference can both
+// carry the same message. Only the first is an arrival: the second must ring
+// nothing and flash nothing (ADR 0016).
+func TestNotify_SecondCopyOfAMessageIsSilent(t *testing.T) {
+	n := &mockNotifier{}
+	o, st := newTestOwnerNotified(t, n)
+	st.SetChat(domain.Chat{ID: 2, Title: "Bob"})
+	evt := store.Event{Kind: store.EventNewMessage,
+		Message: domain.Message{ID: 40, ChatID: 2, Text: "hello there", Date: time.Now()}}
+
+	o.handleEvent(evt)
+	o.handleEvent(evt)
+
+	assert.Len(t, n.calls, 1, "one arrival, one banner")
+	assert.Equal(t, 1, len(o.Notifications()), "one toast")
+	assert.Equal(t, 1, len(o.Incoming()), "one row flash")
+}
+
 // The two gates are different on purpose: mute silences the interruption but
 // must not suppress the row flash that follows the reorder (#39).
 func TestNotify_MutedChatStillFlashesTheRow(t *testing.T) {
@@ -180,6 +208,70 @@ func TestNotify_MutedChatStillFlashesTheRow(t *testing.T) {
 	select {
 	case got := <-o.Notifications():
 		t.Fatalf("a muted chat must raise no toast either, got %+v", got)
+	default:
+	}
+	select {
+	case in := <-o.Incoming():
+		assert.Equal(t, int64(2), in.ChatID, "the row still flashes")
+	default:
+		t.Fatal("expected an Incoming for the row flash")
+	}
+}
+
+// Each sink is switched on its own. The decision is made either way: what the
+// switch says is where a notification goes, never whether it was decided
+// (#249, ADR 0013).
+func TestNotify_DesktopSinkOffLeavesTheToast(t *testing.T) {
+	n := &mockNotifier{}
+	o, st := newTestOwnerNotified(t, n)
+	o.SetConfig(notifyConfig(false, true))
+	st.SetChat(domain.Chat{ID: 2, Title: "Bob"})
+
+	o.handleEvent(store.Event{Kind: store.EventNewMessage,
+		Message: domain.Message{ChatID: 2, Text: "hello there", Date: time.Now()}})
+
+	assert.Empty(t, n.calls, "nothing reaches the operating system")
+	select {
+	case got := <-o.Notifications():
+		assert.Equal(t, "hello there", got.Body, "and the toast is unchanged")
+	default:
+		t.Fatal("expected a Notification on the stream")
+	}
+}
+
+func TestNotify_ToastSinkOffLeavesTheDesktopNotification(t *testing.T) {
+	n := &mockNotifier{}
+	o, st := newTestOwnerNotified(t, n)
+	o.SetConfig(notifyConfig(true, false))
+	st.SetChat(domain.Chat{ID: 2, Title: "Bob"})
+
+	o.handleEvent(store.Event{Kind: store.EventNewMessage,
+		Message: domain.Message{ChatID: 2, Text: "hello there", Date: time.Now()}})
+
+	require.Len(t, n.calls, 1, "the desktop notification is unchanged")
+	assert.Equal(t, "hello there", n.calls[0].body)
+	select {
+	case got := <-o.Notifications():
+		t.Fatalf("no client should be sent a toast, got %+v", got)
+	default:
+	}
+}
+
+// Both off is a legal state and the whole point of #249. The chat list is not a
+// sink: the row still flashes, exactly as it does for a muted chat.
+func TestNotify_BothSinksOffStillFlashesTheRow(t *testing.T) {
+	n := &mockNotifier{}
+	o, st := newTestOwnerNotified(t, n)
+	o.SetConfig(notifyConfig(false, false))
+	st.SetChat(domain.Chat{ID: 2, Title: "Bob"})
+
+	o.handleEvent(store.Event{Kind: store.EventNewMessage,
+		Message: domain.Message{ChatID: 2, Text: "hey", Date: time.Now()}})
+
+	assert.Empty(t, n.calls, "no desktop notification")
+	select {
+	case got := <-o.Notifications():
+		t.Fatalf("no toast either, got %+v", got)
 	default:
 	}
 	select {

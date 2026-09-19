@@ -402,13 +402,17 @@ func convertMessage(raw tg.MessageClass, chatID int64) (domain.Message, bool) {
 			out.DiscussionChatID = discussionChatID
 		}
 	}
-	// EditHide is set when edit_date changes for a non-content reason (e.g. a
-	// reaction bump): Telegram tells clients to hide the "edited" label. Honor
-	// it so reactions don't mark the message as edited (issue #118).
-	if msg.EditDate != 0 && !msg.EditHide {
+	// The two travel together and mean different things. edit_date is when the
+	// message was last edited; edit_hide is Telegram asking that it be shown as
+	// unmodified anyway, which it does for a reaction bump (#118) and for a bot
+	// rewriting its own message. Carrying only the first cost us the text of
+	// every hidden edit (#269), so both are kept and the label is decided from
+	// the pair.
+	if msg.EditDate != 0 {
 		t := time.Unix(int64(msg.EditDate), 0)
 		out.EditDate = &t
 	}
+	out.EditHidden = msg.EditHide
 	if msg.Reactions.Results != nil {
 		out.Reactions = convertReactions(msg.Reactions)
 		out.HasUnreadReactions = reactionsHaveUnread(msg.Reactions)

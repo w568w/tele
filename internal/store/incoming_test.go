@@ -14,7 +14,9 @@ func TestApplyIncomingMessage_AppendsAndCounts(t *testing.T) {
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1, Title: "A"})
 
-	assert.True(t, store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, Text: "hi"}))
+	isNew, counted := store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, Text: "hi"})
+	assert.True(t, isNew)
+	assert.True(t, counted)
 
 	msgs := s.Messages(1)
 	require.Len(t, msgs, 1)
@@ -27,7 +29,9 @@ func TestApplyIncomingMessage_OutgoingAppendsWithoutCounting(t *testing.T) {
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1})
 
-	assert.False(t, store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, IsOut: true}))
+	isNew, counted := store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, IsOut: true})
+	assert.True(t, isNew)
+	assert.False(t, counted)
 
 	require.Len(t, s.Messages(1), 1)
 	c, _ := s.GetChat(1)
@@ -38,7 +42,8 @@ func TestApplyIncomingMessage_CountsMention(t *testing.T) {
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1})
 
-	assert.True(t, store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, Mentioned: true, MediaUnread: true}))
+	_, counted := store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1, Mentioned: true, MediaUnread: true})
+	assert.True(t, counted)
 
 	c, _ := s.GetChat(1)
 	assert.Equal(t, 1, c.UnreadCount)
@@ -51,7 +56,9 @@ func TestApplyIncomingMessage_ReadElsewhereAppendsAndReportsNoChange(t *testing.
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1, ReadInboxMaxID: 10})
 
-	assert.False(t, store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1}))
+	isNew, counted := store.ApplyIncomingMessage(s, domain.Message{ID: 5, ChatID: 1})
+	assert.True(t, isNew, "it still belongs in history")
+	assert.False(t, counted)
 
 	require.Len(t, s.Messages(1), 1)
 	c, _ := s.GetChat(1)
@@ -65,8 +72,13 @@ func TestApplyIncomingMessage_ReplayCountsOnce(t *testing.T) {
 	s.SetChat(domain.Chat{ID: 1})
 	msg := domain.Message{ID: 5, ChatID: 1, Mentioned: true, MediaUnread: true}
 
-	require.True(t, store.ApplyIncomingMessage(s, msg))
-	assert.False(t, store.ApplyIncomingMessage(s, msg))
+	isNew, counted := store.ApplyIncomingMessage(s, msg)
+	require.True(t, isNew)
+	require.True(t, counted)
+
+	isNew, counted = store.ApplyIncomingMessage(s, msg)
+	assert.False(t, isNew, "the same message again is not a second arrival")
+	assert.False(t, counted)
 
 	c, _ := s.GetChat(1)
 	assert.Equal(t, 1, c.UnreadCount)

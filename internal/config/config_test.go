@@ -120,6 +120,60 @@ func TestDefaults_Toasts(t *testing.T) {
 	assert.Equal(t, 3, cfg.UI.Toasts.MaxVisible)
 }
 
+// Both sinks and the preview are on for a file that names none of them: a fresh
+// install notifies, and #249 is about switching that off rather than on.
+func TestDefaults_Notifications(t *testing.T) {
+	cfg := loadWithUI(t, "")
+
+	assert.True(t, cfg.UI.Notifications.Desktop)
+	assert.True(t, cfg.UI.Notifications.Toast)
+	assert.True(t, cfg.UI.Notifications.Preview)
+}
+
+// The pre-v1.11 spelling still works. Nothing about the config's behaviour
+// changes, so the notice is shown once rather than at every launch.
+func TestNotifications_TheOldPreviewKeyIsStillRead(t *testing.T) {
+	cfg := loadWithUI(t, "  notification_preview: false\n")
+
+	assert.False(t, cfg.UI.Notifications.Preview, "read from where it is")
+	assert.True(t, cfg.UI.Notifications.Desktop, "and says nothing about the sinks")
+	require.Len(t, cfg.Warnings, 1)
+	assert.Contains(t, cfg.Warnings[0].Text, "ui.notifications.preview")
+	assert.NotEmpty(t, cfg.Warnings[0].ID, "shown once, not every launch")
+}
+
+// One spelling is canonical and the other is a leftover, rather than the two
+// racing - the same precedence state_dir has over telegram.session_file.
+func TestNotifications_TheNewPreviewKeyOutranksTheOld(t *testing.T) {
+	cfg := loadWithUI(t, "  notification_preview: false\n  notifications:\n    preview: true\n")
+
+	assert.True(t, cfg.UI.Notifications.Preview, "the new key wins")
+	require.Len(t, cfg.Warnings, 1)
+	assert.Contains(t, cfg.Warnings[0].Text, "ignored")
+}
+
+// The old key is out of the registry, so repairIllegal no longer covers it. A
+// value the app cannot read must still land on the default and be said out
+// loud: reading it as false would switch previews off on a typo.
+func TestNotifications_AnUnreadableOldPreviewKeyFallsToTheDefault(t *testing.T) {
+	cfg := loadWithUI(t, "  notification_preview: sometimes\n")
+
+	assert.True(t, cfg.UI.Notifications.Preview, "the default, not false")
+	require.Len(t, cfg.Warnings, 1)
+	assert.Contains(t, cfg.Warnings[0].Text, "ui.notification_preview")
+	assert.Contains(t, cfg.Warnings[0].Text, "using true instead")
+	assert.Empty(t, cfg.Warnings[0].ID, "still wrong, so said at every launch")
+}
+
+// A file that never knew the old key is a quiet file.
+func TestNotifications_TheNewKeyAloneWarnsAboutNothing(t *testing.T) {
+	cfg := loadWithUI(t, "  notifications:\n    desktop: false\n    toast: true\n")
+
+	assert.False(t, cfg.UI.Notifications.Desktop)
+	assert.True(t, cfg.UI.Notifications.Toast)
+	assert.Empty(t, cfg.Warnings)
+}
+
 func TestDefaults_PhotosDiskCacheSize(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "config.yml")

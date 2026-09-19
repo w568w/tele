@@ -7,6 +7,9 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+
+	"github.com/sorokin-vladimir/tele/internal/proxy"
+	"github.com/sorokin-vladimir/tele/internal/settings"
 )
 
 type TelegramConfig struct {
@@ -29,19 +32,44 @@ type UIConfig struct {
 	// Theme is kept as written because its two spellings mean different things:
 	// a name puts that theme in both slots, a map fills the slots it names. Read
 	// ThemeSlots instead; resolveTheme fills it.
-	Theme        any        `mapstructure:"theme"`
-	ThemeSlots   ThemeSlots `mapstructure:"-"`
-	DateFormat   string     `mapstructure:"date_format"`
-	HistoryLimit int        `mapstructure:"history_limit"`
-	// NotificationPreview controls whether the message text is included in
-	// desktop notifications. Set false to send only the sender name (#80).
-	NotificationPreview bool         `mapstructure:"notification_preview"`
-	Toasts              ToastsConfig `mapstructure:"toasts"`
+	Theme         any                 `mapstructure:"theme"`
+	ThemeSlots    ThemeSlots          `mapstructure:"-"`
+	DateFormat    string              `mapstructure:"date_format"`
+	HistoryLimit  int                 `mapstructure:"history_limit"`
+	Notifications NotificationsConfig `mapstructure:"notifications"`
+	Toasts        ToastsConfig        `mapstructure:"toasts"`
+}
+
+// NotificationsConfig governs the one decision that an event deserves the
+// person's attention: which sinks carry it, and how much it says. Desktop and
+// Toast are the two sinks and are switched independently, because one of them
+// is reachable by the platform's own tooling and the other is not (#249). Both
+// gates live at the fork in the owner, never at the sink that draws — see ADR
+// 0013.
+//
+// Neither reaches the chat list. A row still highlights and takes its new place
+// with both switched off: that is the message arriving, not an interruption.
+type NotificationsConfig struct {
+	// Desktop hands the notification to the operating system's notification
+	// service, where it outlives tele not being on screen.
+	Desktop bool `mapstructure:"desktop"`
+	// Toast draws the notification in a corner of tele's own window. Errors,
+	// warnings and confirmations are unaffected: silencing an interruption is
+	// not silencing a report that something went wrong.
+	Toast bool `mapstructure:"toast"`
+	// Preview includes the message text in the notification. It reaches both
+	// sinks, because the body is rendered once and handed to each unchanged:
+	// off sends the sender's name and nothing else to the desktop and to the
+	// toast alike. Set false to keep message text out of places that persist it
+	// (#80).
+	Preview bool `mapstructure:"preview"`
 }
 
 // ToastsConfig controls the floating toast component (#87). Zone strings are
-// "bottom-right", "top-right", or "bottom-left"; unknown values fall back to
-// the default at the UI layer.
+// "bottom-right" or "top-right"; unknown values fall back to the default at the
+// UI layer. ZoneBottomLeft exists as a position but is not one of them: that
+// corner is kept for the key-press overlay (#83), so nothing offers it and
+// writing it here lands in the default.
 type ToastsConfig struct {
 	ErrorZone  string `mapstructure:"error_zone"`
 	NotifyZone string `mapstructure:"notify_zone"`
@@ -86,7 +114,12 @@ type AvatarsConfig struct {
 }
 
 type Config struct {
-	Telegram    TelegramConfig            `mapstructure:"telegram"`
+	Telegram TelegramConfig `mapstructure:"telegram"`
+	// Proxy is how tele reaches Telegram. Its type lives in internal/proxy
+	// together with what judges it: unlike every other section, an unreadable
+	// one stops the start rather than falling back to its default, and the
+	// reason is that its default is a direct connection (ADR 0017).
+	Proxy       proxy.Config              `mapstructure:"proxy"`
 	UI          UIConfig                  `mapstructure:"ui"`
 	Photos      PhotosConfig              `mapstructure:"photos"`
 	Avatars     AvatarsConfig             `mapstructure:"avatars"`
@@ -155,11 +188,40 @@ func Load(path, defaultStateDir string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Warnings = append(cfg.Warnings, repairs...)
+	if err := cfg.resolveProxy(path); err != nil {
+		return nil, err
+	}
 	cfg.named = namedInFile(v)
+	cfg.resolveNotifications(v)
 	cfg.resolveState(defaultStateDir)
 	cfg.ThemesDir = filepath.Join(filepath.Dir(path), themesDirName)
 	cfg.resolveTheme()
 	return &cfg, nil
+}
+
+// resolveProxy is the one section that can stop a config from loading.
+//
+// Everything else in the file is repaired to its default and reported, because
+// one wrong key should not keep somebody out of their messages. A proxy cannot
+// be: the default it would fall back to is a direct connection to Telegram,
+// which is what the section was written to avoid, and the report would be one
+// warning line among the theme notices (ADR 0017).
+//
+// The message carries all three things its reader needs and fits on one line,
+// because it is read in two places: on a terminal by somebody whose tele did
+// not start, and in a toast by somebody whose reload was refused.
+func (c *Config) resolveProxy(path string) error {
+	if _, err := proxy.Parse(c.Proxy); err != nil {
+		return fmt.Errorf("%w (in %s; set proxy.type: direct to connect without a proxy)", err, path)
+	}
+	for _, n := range proxy.Notices(c.Proxy) {
+		if n.ID == "" {
+			c.warn("%s", n.Text)
+			continue
+		}
+		c.warnOnce(n.ID, "%s", n.Text)
+	}
+	return nil
 }
 
 // legacyThemeName is the value shipped in every config tele has ever written. It
@@ -223,6 +285,43 @@ func (c *Config) themeName(s string) string {
 		return ""
 	}
 	return name
+}
+
+// deprecatedNotificationPreview is where the message-text switch lived before
+// the notification settings became a group of their own. It is read for as long
+// as configs written by older builds are still out there.
+const deprecatedNotificationPreview = "ui.notification_preview"
+
+// resolveNotifications carries the old spelling of the preview switch into the
+// group that replaced it. The new key outranks the old one when a file names
+// both, which is how state_dir already outranks telegram.session_file: one
+// spelling is canonical and the other is a leftover, rather than the two
+// racing.
+//
+// Both notices are shown once. Neither describes something that is still wrong
+// — the config behaves as it always did — so what is left to do is tidy a line,
+// and saying so at every launch would be nagging.
+func (c *Config) resolveNotifications(v *viper.Viper) {
+	if !v.InConfig(deprecatedNotificationPreview) {
+		return
+	}
+	if v.InConfig("ui.notifications.preview") {
+		c.warnOnce("config.ui.notification_preview.ignored",
+			"ui.notification_preview is ignored because ui.notifications.preview is set — you can delete the old line")
+		return
+	}
+	// The old key is no longer declared, so repairIllegal never sees it. A value
+	// the app cannot read must not quietly become false: it falls to the default
+	// the way a repair does, and says so at every launch rather than once,
+	// because unlike a moved line it is still wrong.
+	old := settings.Entry{Key: deprecatedNotificationPreview, Widget: settings.Toggle}
+	if err := old.Validate(v.Get(deprecatedNotificationPreview)); err != nil {
+		c.warn("%s: %v; using %v instead", deprecatedNotificationPreview, err, c.UI.Notifications.Preview)
+		return
+	}
+	c.UI.Notifications.Preview = v.GetBool(deprecatedNotificationPreview)
+	c.warnOnce("config.ui.notification_preview.moved",
+		"ui.notification_preview has moved to ui.notifications.preview and is read from where it is — nothing has changed for you; move the line when convenient")
 }
 
 // resolveState fixes StateDir and Telegram.SessionFile. Precedence:

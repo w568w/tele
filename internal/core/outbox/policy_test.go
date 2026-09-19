@@ -210,6 +210,9 @@ func TestBackoff_TerminalKinds(t *testing.T) {
 	for _, kind := range []telerr.Kind{
 		telerr.PeerNotFound, telerr.Forbidden, telerr.NotFound, telerr.Internal,
 		telerr.Rejected,
+		// Unlike Unauthorized above, which parks and waits: no login returns a
+		// session when it is the key being refused, so waiting is forever.
+		telerr.AppKeyBlocked,
 	} {
 		_, terminal := Backoff(&telerr.Error{Kind: kind}, 0)
 		assert.True(t, terminal, "kind %s must be terminal", kind)

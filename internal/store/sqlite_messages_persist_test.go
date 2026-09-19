@@ -93,7 +93,8 @@ func TestSQLite_MessageEdit_PersistsSurvivesReopen(t *testing.T) {
 	s2 := openStore(t, path)
 	s2.SetChat(domain.Chat{ID: 4, Peer: domain.Peer{ID: 4, Type: domain.PeerUser}})
 	s2.LoadMessages(4)
-	s2.UpdateMessageText(4, 1, "after", nil, false, time.Unix(20, 0))
+	s2.UpdateMessageText(4, 1, "after", nil)
+	s2.MarkMessageEdited(4, 1, time.Unix(20, 0), true)
 	s2.UpdateMessageReactions(4, 1, []domain.Reaction{{Emoji: "👍", Count: 2}})
 	require.NoError(t, s2.Close())
 
@@ -107,6 +108,7 @@ func TestSQLite_MessageEdit_PersistsSurvivesReopen(t *testing.T) {
 	require.Len(t, got[0].Reactions, 1)
 	assert.Equal(t, "👍", got[0].Reactions[0].Emoji)
 	require.NotNil(t, got[0].EditDate)
+	assert.False(t, got[0].ShowsEdited(), "the hidden label survives a restart too")
 }
 
 func TestSQLite_RemoveMessage_DeletesOnDisk(t *testing.T) {

@@ -94,7 +94,6 @@ func diffWindow(prev, next ChatContents) []ChatDelta {
 	if prev.AnchorMsgID != next.AnchorMsgID {
 		return []ChatDelta{{Kind: ChatReset, Contents: next}}
 	}
-
 	switch {
 	case equalInts(prevIDs, nextIDs):
 		var out []ChatDelta

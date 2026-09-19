@@ -1,0 +1,62 @@
+package domain
+
+// MergeMessages merges a page fetched from Telegram into a chat's stored
+// history. Both sides are ordered oldest first, by date and then by id, and so
+// is the result.
+//
+// A message present on both sides is one message, and the fetched copy is the
+// one kept: Telegram is the source of truth for what a message says, and a
+// message edited while this client was not listening is exactly why the two
+// copies can differ. Without the dedup, overlapping pages stack into a
+// repeating date range instead (issue #120).
+//
+// The direction the page extends the history in is not a parameter: an older
+// page and a page fetched to close a gap merge by the same rule, and the order
+// of the result follows from the messages rather than from which call site
+// asked for them.
+func MergeMessages(existing, fetched []Message) []Message {
+	if len(fetched) == 0 {
+		return existing
+	}
+	if len(existing) == 0 {
+		return fetched
+	}
+
+	replaced := make(map[int]struct{}, len(fetched))
+	for _, m := range fetched {
+		replaced[m.ID] = struct{}{}
+	}
+
+	out := make([]Message, 0, len(existing)+len(fetched))
+	i, j := 0, 0
+	for i < len(existing) && j < len(fetched) {
+		if _, dup := replaced[existing[i].ID]; dup {
+			i++
+			continue
+		}
+		if messageBefore(existing[i], fetched[j]) {
+			out = append(out, existing[i])
+			i++
+			continue
+		}
+		out = append(out, fetched[j])
+		j++
+	}
+	for ; i < len(existing); i++ {
+		if _, dup := replaced[existing[i].ID]; dup {
+			continue
+		}
+		out = append(out, existing[i])
+	}
+	return append(out, fetched[j:]...)
+}
+
+// messageBefore orders two messages the way the store holds them: by date, and
+// by id where a date is shared. Telegram stamps a whole album with one date, so
+// the id is not a tiebreaker of last resort but the ordinary case.
+func messageBefore(a, b Message) bool {
+	if !a.Date.Equal(b.Date) {
+		return a.Date.Before(b.Date)
+	}
+	return a.ID < b.ID
+}

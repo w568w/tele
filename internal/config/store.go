@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sorokin-vladimir/tele/internal/proxy"
 	"github.com/sorokin-vladimir/tele/internal/settings"
 )
 
@@ -108,6 +109,16 @@ func (s *Store) Set(key string, v any) error {
 	if err := e.Validate(v); err != nil {
 		return fmt.Errorf("%s: %w", key, err)
 	}
+	// A proxy value is judged before it is written rather than after. The file
+	// is written first and read back second, so a value the config will not
+	// load would already be in the file by the time anybody found out - and the
+	// screen that would put it right lives inside a tele that no longer starts
+	// (ADR 0017).
+	if strings.HasPrefix(key, proxyPrefix) {
+		if err := checkProxyEdit(s.Current().Proxy, key, v); err != nil {
+			return err
+		}
+	}
 
 	s.writes.Lock()
 	defer s.writes.Unlock()
@@ -115,6 +126,85 @@ func (s *Store) Set(key string, v any) error {
 		return err
 	}
 	return s.load()
+}
+
+// checkProxyEdit reads the proxy section as it would be once this key holds
+// this value, and refuses what Load would refuse. A nil value is a reset, which
+// is absence, which for the type is auto.
+//
+// The whole section is judged rather than the one key, because that is the
+// question being asked: not "is this a secret" but "will tele start with this".
+// It makes the order of edits matter - the address and the secret go in before
+// the type is switched to mtproto - so the refusal says so.
+func checkProxyEdit(cur proxy.Config, key string, v any) error {
+	cand := cur
+	switch key {
+	case proxyPrefix + "type":
+		text, err := proxyText(key, v)
+		if err != nil {
+			return err
+		}
+		cand.Type = text
+		if cand.Type == "" {
+			cand.Type = proxy.TypeAuto
+		}
+	case proxyPrefix + "server":
+		text, err := proxyText(key, v)
+		if err != nil {
+			return err
+		}
+		cand.Server = text
+	case proxyPrefix + "port":
+		cand.Port = 0
+		if v != nil {
+			n, ok := toInt64(v)
+			if !ok {
+				return fmt.Errorf("%s: %v is not a port", key, v)
+			}
+			cand.Port = int(n)
+		}
+	case proxyPrefix + "secret":
+		text, err := proxyText(key, v)
+		if err != nil {
+			return err
+		}
+		cand.Secret = text
+	case proxyPrefix + "username":
+		text, err := proxyText(key, v)
+		if err != nil {
+			return err
+		}
+		cand.Username = text
+	case proxyPrefix + "password":
+		text, err := proxyText(key, v)
+		if err != nil {
+			return err
+		}
+		cand.Password = text
+	default:
+		return fmt.Errorf("%s is not a setting", key)
+	}
+
+	if _, err := proxy.Parse(cand); err != nil {
+		if key == proxyPrefix+"type" {
+			return fmt.Errorf("%w; fill in the rest of the section first, then change the type", err)
+		}
+		return err
+	}
+	return nil
+}
+
+// proxyText reads a text value out of what the overlay offers, where absence is
+// a reset to nothing.
+func proxyText(key string, v any) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	text, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%s: %v is not text", key, v)
+	}
+	return text, nil
 }
 
 // Reload re-reads the file and swaps the config for what it says. It is what a

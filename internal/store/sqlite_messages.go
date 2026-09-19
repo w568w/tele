@@ -25,8 +25,58 @@ func (s *SQLiteStore) Messages(chatID int64) []domain.Message {
 func (s *SQLiteStore) SetMessages(chatID int64, msgs []domain.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.setMessagesLocked(chatID, msgs, len(msgs), "SetMessages")
+}
+
+// MergeMessages merges a fetched page into a chat's stored history and reports
+// how many messages it added. Reading the held history, merging and storing the
+// result happen under one hold of the lock, which is what keeps a message
+// arriving mid-fetch from being written back out of existence: read and write
+// as two calls leave a window where the arrival lands between them and is lost
+// when the merged page replaces the slice.
+//
+// A page that adds nothing still lands, because a message can come back edited
+// without changing the count. The caller decides what to do about a zero, and
+// what it is told is what the count changed by, not whether anything did.
+func (s *SQLiteStore) MergeMessages(chatID int64, msgs []domain.Message) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := s.messages[chatID]
+	merged := domain.MergeMessages(held, msgs)
+	s.setMessagesLocked(chatID, merged, len(merged), "MergeMessages")
+	return len(merged) - len(held)
+}
+
+// RepairMessages merges a page in the way MergeMessages does, and leaves the
+// chat no deeper than it found it: the cap applies as if the page had never
+// come, trimming the oldest to make room.
+//
+// The floor exists to protect a scrollback somebody scrolled to, so that an
+// arriving message cannot cap it back down. A page that closes a gap was asked
+// for by nobody, and letting it raise the floor would turn a repair into a
+// permanent rise in what the chat costs to hold, once per hole.
+func (s *SQLiteStore) RepairMessages(chatID int64, msgs []domain.Message) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := s.messages[chatID]
+	merged := domain.MergeMessages(held, msgs)
+	s.setMessagesLocked(chatID, merged, s.msgFloor[chatID], "RepairMessages")
+	// What the page brought, counted before the cap trims the other end: a
+	// repair that adds fifty and pushes fifty older ones out still changed
+	// every window looking at it.
+	return len(merged) - len(held)
+}
+
+// setMessagesLocked replaces a chat's history with msgs, taking a copy: the
+// slice handed in may be the caller's own, or the store's own held slice come
+// back through a merge. floor is how deep this write claims the chat was
+// filled, which is what the cap will not trim below. via names the write for
+// the reaction trace. Caller holds the lock.
+func (s *SQLiteStore) setMessagesLocked(chatID int64, msgs []domain.Message, floor int, via string) {
 	cp := make([]domain.Message, len(msgs))
 	copy(cp, msgs)
+	held := s.heldReactionsLocked(chatID)
+	defer s.traceHeldReactionsLocked(chatID, via, held)
 
 	newIDs := make(map[int]struct{}, len(cp))
 	for _, m := range cp {
@@ -46,7 +96,7 @@ func (s *SQLiteStore) SetMessages(chatID int64, msgs []domain.Message) {
 	if s.msgFloor == nil {
 		s.msgFloor = make(map[int64]int)
 	}
-	s.msgFloor[chatID] = len(cp)
+	s.msgFloor[chatID] = floor
 	s.capMessagesLocked(chatID)
 	if chat, ok := s.chats[chatID]; ok && sharedPtsBox(chat.Peer) {
 		for _, m := range s.messages[chatID] {
@@ -54,27 +104,6 @@ func (s *SQLiteStore) SetMessages(chatID int64, msgs []domain.Message) {
 		}
 	}
 	for _, m := range s.messages[chatID] {
-		s.markMsgDirtyLocked(chatID, m.ID)
-	}
-}
-
-// MergeMessages installs fetched history without discarding concurrent live
-// arrivals. The fetched copy wins collisions because it may carry hydrated data.
-func (s *SQLiteStore) MergeMessages(chatID int64, msgs []domain.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	merged := mergeMessagesByID(s.messages[chatID], msgs)
-	s.messages[chatID] = merged
-	if s.msgFloor == nil {
-		s.msgFloor = make(map[int64]int)
-	}
-	s.msgFloor[chatID] = len(merged)
-	if chat, ok := s.chats[chatID]; ok && sharedPtsBox(chat.Peer) {
-		for _, m := range merged {
-			s.msgChat[m.ID] = chatID
-		}
-	}
-	for _, m := range msgs {
 		s.markMsgDirtyLocked(chatID, m.ID)
 	}
 }
@@ -345,15 +374,16 @@ func (s *SQLiteStore) BumpChatLastMessage(chatID int64, msg domain.Message) {
 // carry more (a resolved sender name, filled-in media refs), so it wins in place
 // rather than appearing a second time. Sentinel IDs are negative and unique, so
 // optimistic messages never collide here.
-func (s *SQLiteStore) AppendMessage(msg domain.Message) {
+func (s *SQLiteStore) AppendMessage(msg domain.Message) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if msg.ID > 0 {
 		for i := range s.messages[msg.ChatID] {
 			if s.messages[msg.ChatID][i].ID == msg.ID {
+				s.traceReactionChangeLocked(msg.ChatID, msg.ID, "AppendMessage", s.messages[msg.ChatID][i].Reactions, msg.Reactions)
 				s.messages[msg.ChatID][i] = msg
 				s.markMsgDirtyLocked(msg.ChatID, msg.ID)
-				return
+				return false
 			}
 		}
 	}
@@ -375,23 +405,75 @@ func (s *SQLiteStore) AppendMessage(msg domain.Message) {
 		s.markDirtyLocked(msg.ChatID) // write-behind: last-message persists on flush
 	}
 	s.capMessagesLocked(msg.ChatID)
+	return true
 }
 
-// UpdateMessageText replaces the editable message fields together. Entity
-// offsets address the text, and link previews are created or removed by the
-// same Telegram edit, so keeping any old value would describe mixed versions.
-func (s *SQLiteStore) UpdateMessageText(chatID int64, msgID int, text string, entities []domain.MessageEntity, hasWebPreview bool, editDate time.Time) {
+// AdvanceAppliedPosition compares and records under one lock, so the decision
+// and the record cannot disagree.
+func (s *SQLiteStore) AdvanceAppliedPosition(chatID int64, msgID, position int) bool {
+	if position == 0 {
+		return true
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.messages[chatID] {
 		if s.messages[chatID][i].ID == msgID {
-			s.messages[chatID][i].Text = text
+			if position <= s.messages[chatID][i].AppliedPosition {
+				return false
+			}
+			s.messages[chatID][i].AppliedPosition = position
+			s.markMsgDirtyLocked(chatID, msgID)
+			return true
+		}
+	}
+	return true
+}
+
+// UpdateMessageText replaces a message's text and its entities together. They
+// must move as a unit: entity offsets address the text they were parsed from,
+// so keeping the old ones would leave them pointing at characters that changed.
+//
+// The edit marker is not touched here. Whether an edit earns the "edited" label
+// is Telegram's to say, and it says so separately (#269).
+func (s *SQLiteStore) UpdateMessageText(chatID int64, msgID int, text string, entities []domain.MessageEntity) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.messages[chatID] {
+		if s.messages[chatID][i].ID == msgID {
+			m := &s.messages[chatID][i]
+			// A caption can legitimately be removed, and a broken delivery looks
+			// exactly the same from here. Rather than guess, say so and carry on:
+			// the counts and the position are enough to tell the two apart in a
+			// log, and the text itself never goes into one (#80).
+			if text == "" && m.Text != "" {
+				s.log.Warn("stored text replaced by an empty one",
+					zap.Int64("chat_id", chatID),
+					zap.Int("msg_id", msgID),
+					zap.Int("was_len", len([]rune(m.Text))),
+					zap.Int("now_len", 0),
+					zap.Bool("media", m.Media != nil || m.Photo != nil || m.Document != nil),
+					zap.Int("position", m.AppliedPosition),
+				)
+			}
+			m.Text = text
 			cp := make([]domain.MessageEntity, len(entities))
 			copy(cp, entities)
-			s.messages[chatID][i].Entities = cp
-			s.messages[chatID][i].HasWebPreview = hasWebPreview
+			m.Entities = cp
+			s.markMsgDirtyLocked(chatID, msgID)
+			return
+		}
+	}
+}
+
+// MarkMessageEdited records the edit time and whether the label is hidden.
+func (s *SQLiteStore) MarkMessageEdited(chatID int64, msgID int, editDate time.Time, hidden bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.messages[chatID] {
+		if s.messages[chatID][i].ID == msgID {
 			t := editDate
 			s.messages[chatID][i].EditDate = &t
+			s.messages[chatID][i].EditHidden = hidden
 			s.markMsgDirtyLocked(chatID, msgID)
 			return
 		}
@@ -405,6 +487,7 @@ func (s *SQLiteStore) UpdateMessageReactions(chatID int64, msgID int, reactions 
 		if s.messages[chatID][i].ID == msgID {
 			cp := make([]domain.Reaction, len(reactions))
 			copy(cp, reactions)
+			s.traceReactionChangeLocked(chatID, msgID, "UpdateMessageReactions", s.messages[chatID][i].Reactions, cp)
 			s.messages[chatID][i].Reactions = cp
 			s.markMsgDirtyLocked(chatID, msgID)
 			return
@@ -439,6 +522,7 @@ func (s *SQLiteStore) ReplaceMessage(chatID int64, msg domain.Message) {
 	defer s.mu.Unlock()
 	for i := range s.messages[chatID] {
 		if s.messages[chatID][i].ID == msg.ID {
+			s.traceReactionChangeLocked(chatID, msg.ID, "ReplaceMessage", s.messages[chatID][i].Reactions, msg.Reactions)
 			s.messages[chatID][i] = msg
 			s.markMsgDirtyLocked(chatID, msg.ID)
 			return

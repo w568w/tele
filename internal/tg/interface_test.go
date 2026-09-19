@@ -39,23 +39,26 @@ func (m *mockClient) GetHistory(_ context.Context, _ domain.Peer, _ int, _ int) 
 	return m.history, nil
 }
 
-func (m *mockClient) GetHistoryWindow(_ context.Context, _ domain.Peer, _ int, _ int, _ int) ([]domain.Message, error) {
+func (m *mockClient) GetHistoryWindow(_ context.Context, _ domain.Peer, _ int, _, _ int) ([]domain.Message, error) {
+	return m.history, nil
+}
+
+func (m *mockClient) GetReplies(_ context.Context, _ domain.Peer, _ int, _ int, _ int) ([]domain.Message, error) {
+	return m.history, nil
+}
+func (m *mockClient) GetRepliesWindow(_ context.Context, _ domain.Peer, _ int, _, _, _ int) ([]domain.Message, error) {
+	return m.history, nil
+}
+func (m *mockClient) JoinChannel(context.Context, domain.Peer) error                  { return nil }
+func (m *mockClient) MarkDiscussionRead(context.Context, domain.Peer, int, int) error { return nil }
+
+func (m *mockClient) GetHistoryAfter(_ context.Context, _ domain.Peer, _ int, _ int) ([]domain.Message, error) {
 	return m.history, nil
 }
 
 func (m *mockClient) GetDiscussion(_ context.Context, _ domain.Peer, _ int, _ int64) (domain.Discussion, error) {
 	return domain.Discussion{}, nil
 }
-
-func (m *mockClient) GetReplies(_ context.Context, _ domain.Peer, _, _, _ int) ([]domain.Message, error) {
-	return nil, nil
-}
-
-func (m *mockClient) GetRepliesWindow(_ context.Context, _ domain.Peer, _, _, _, _ int) ([]domain.Message, error) {
-	return nil, nil
-}
-
-func (m *mockClient) JoinChannel(_ context.Context, _ domain.Peer) error { return nil }
 
 func (m *mockClient) RefreshMessage(_ context.Context, _ domain.Peer, _ int) (domain.Message, error) {
 	return domain.Message{}, nil
@@ -95,9 +98,6 @@ func (m *mockClient) UploadMedia(_ context.Context, _ domain.Peer, media tg.Inpu
 }
 
 func (m *mockClient) MarkRead(_ context.Context, _ domain.Peer, _ int) error { return nil }
-func (m *mockClient) MarkDiscussionRead(_ context.Context, _ domain.Peer, _, _ int) error {
-	return nil
-}
 
 func (m *mockClient) MarkDialogUnread(_ context.Context, _ domain.Peer, _ bool) error { return nil }
 

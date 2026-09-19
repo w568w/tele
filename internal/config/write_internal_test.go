@@ -102,15 +102,15 @@ func TestEditFile_CreatesAMissingSection(t *testing.T) {
 }
 
 // A new key goes where a person reading the file would look for it, not at the
-// bottom. history_limit is declared before notification_preview, so an inserted
-// notification_preview belongs after it.
+// bottom. notifications is declared after theme and before the next section, so
+// an inserted notifications block belongs between them.
 func TestEditFile_InsertsInRegistryOrder(t *testing.T) {
 	path := fixture(t)
-	require.NoError(t, editFile(path, "ui.notification_preview", false))
+	require.NoError(t, editFile(path, "ui.notifications.preview", false))
 	after := read(t, path)
 
-	assert.Less(t, strings.Index(after, "history_limit:"), strings.Index(after, "notification_preview:"))
-	assert.Less(t, strings.Index(after, "notification_preview:"), strings.Index(after, "theme:"))
+	assert.Less(t, strings.Index(after, "theme:"), strings.Index(after, "notifications:"))
+	assert.Less(t, strings.Index(after, "notifications:"), strings.Index(after, "photos:"))
 }
 
 // An inserted key joins the block it belongs to. It must not land between the
@@ -118,14 +118,14 @@ func TestEditFile_InsertsInRegistryOrder(t *testing.T) {
 // itself past the blank line that separates them either.
 func TestEditFile_InsertsWithoutSplittingACommentFromItsKey(t *testing.T) {
 	path := fixture(t)
-	require.NoError(t, editFile(path, "ui.notification_preview", false))
+	require.NoError(t, editFile(path, "avatars.disk_cache_size", 16777216))
 	after := read(t, path)
 
 	assert.Contains(t, after,
-		"  history_limit: 50   # messages fetched when a chat is opened\n"+
-			"  notification_preview: false\n"+
+		"avatars:\n"+
+			"  disk_cache_size: 16777216\n"+
 			"\n"+
-			"  # Themes follow the terminal background")
+			"# Something a future version of tele knows about")
 }
 
 // Resetting a setting deletes its key. Absence is the value, so a file does not
@@ -284,10 +284,14 @@ func TestEditFile_KeepsLFLineEndings(t *testing.T) {
 
 func TestSiblingOrder(t *testing.T) {
 	assert.Equal(t,
-		[]string{"telegram", "state_dir", "ui", "photos", "avatars", "keybindings"},
+		[]string{"telegram", "proxy", "state_dir", "ui", "photos", "avatars", "keybindings"},
 		siblingOrder(nil),
 		"the file's own order, exclusions included")
-	assert.Equal(t, []string{"history_limit", "notification_preview", "theme", "toasts", "date_format"}, siblingOrder([]string{"ui"}))
+	// The proxy section reads the way it is filled in: what kind of proxy,
+	// where it is, and then what it wants to be told.
+	assert.Equal(t, []string{"type", "server", "port", "secret", "username", "password"}, siblingOrder([]string{"proxy"}))
+	assert.Equal(t, []string{"history_limit", "theme", "notifications", "toasts", "date_format"}, siblingOrder([]string{"ui"}))
+	assert.Equal(t, []string{"desktop", "toast", "preview"}, siblingOrder([]string{"ui", "notifications"}))
 	assert.Equal(t, []string{"error_zone", "notify_zone", "max_visible"}, siblingOrder([]string{"ui", "toasts"}))
 }
 

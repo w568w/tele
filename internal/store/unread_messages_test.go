@@ -89,7 +89,8 @@ func TestRemoveMessages_DropsTrackedUnreadMessages(t *testing.T) {
 	s := store.NewMemory()
 	s.SetChat(domain.Chat{ID: 1, ReadInboxMaxID: 10})
 	for _, id := range []int{11, 12} {
-		require.True(t, store.ApplyIncomingMessage(s, domain.Message{ID: id, ChatID: 1, IsService: true}))
+		_, counted := store.ApplyIncomingMessage(s, domain.Message{ID: id, ChatID: 1, IsService: true})
+		require.True(t, counted)
 	}
 
 	s.RemoveMessages(1, []int{11, 12})

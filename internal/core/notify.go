@@ -6,7 +6,8 @@ import (
 	"github.com/sorokin-vladimir/tele/internal/store"
 )
 
-// Notifier sends OS desktop notifications.
+// Notifier sends desktop notifications: the sink that reaches the operating
+// system's own notification service.
 type Notifier interface {
 	Notify(title, body string) error
 }
@@ -65,7 +66,8 @@ func decideNotification(
 
 // trigger reduces an event to what a notification would be made of, or reports
 // that this kind of event never notifies. It is the only place a body is
-// rendered, so the privacy rule (#80) is written exactly once.
+// rendered, so the privacy rule (#80) is written exactly once - and applies to
+// every sink, the toast included, because they are all handed this one body.
 func trigger(evt store.Event, preview bool) (chatID int64, at time.Time, body string, ok bool) {
 	switch evt.Kind {
 	case store.EventNewMessage:

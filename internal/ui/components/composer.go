@@ -515,7 +515,7 @@ func (c *Composer) VisualHeight() int {
 }
 
 func (c *Composer) View() string {
-	c.applyCanvas()
+	c.applyTheme()
 	content := c.buildContent()
 	h := strings.Count(content, "\n") + 1 + 2
 
@@ -533,36 +533,60 @@ func (c *Composer) View() string {
 	return RenderBox(content, "", "", "", c.sendAffordance(), lipgloss.RoundedBorder(), borderFg, c.width, h)
 }
 
-// applyCanvas puts the canvas behind the textarea's own styles.
+// applyTheme rebuilds the textarea styles for the current theme, then puts the
+// optional canvas behind them.
 //
-// The textarea is a vendored component that emits its own cells — the draft
-// text, the placeholder, the prompt inset, the end-of-buffer markers — and none
-// of them go through theme.NewStyle. Left alone it is a hole in the canvas the
-// size of the composer. Only the background is added: what the component chooses
-// to look like otherwise is its own business, and overwriting its defaults here
-// would change the composer's appearance for everyone, canvas or not.
+// The textarea is the one thing on screen tele does not colour token by token:
+// it owns a palette of its own, and the app can only choose which of the two
+// variants that palette comes in. So the rebuild is total and deliberate, which
+// reverses what this function used to do — see ADR 0015.
+//
+// Which variant is right is not the slot's question but the canvas's. The slot
+// follows the terminal background, and a theme that paints a canvas covers that
+// background over: seoul256-light in the dark slot leaves a light field with
+// dark-variant text on it. So the canvas decides whenever there is one, and only
+// a bare terminal falls back to the slot.
+//
+// The canvas guard (ADR 0002) is satisfied without an exception: these styles
+// come from the vendored component rather than a bare constructor, and every
+// state they reach is painted with the canvas here, in this function, before
+// they can render a cell.
 //
 // It runs per frame because the theme can change under a running session, and
 // the styles are values rather than a live reference to it.
-func (c *Composer) applyCanvas() {
+func (c *Composer) applyTheme() {
 	bg := theme.T().Background
-	if theme.IsNone(bg) {
-		return
+	painted := !theme.IsNone(bg)
+
+	dark := theme.IsDark()
+	if painted {
+		dark = theme.IsDarkColor(bg)
 	}
-	paint := func(s textarea.StyleState) textarea.StyleState {
-		s.Base = s.Base.Background(bg)
-		s.Text = s.Text.Background(bg)
-		s.LineNumber = s.LineNumber.Background(bg)
-		s.CursorLineNumber = s.CursorLineNumber.Background(bg)
-		s.CursorLine = s.CursorLine.Background(bg)
-		s.EndOfBuffer = s.EndOfBuffer.Background(bg)
-		s.Placeholder = s.Placeholder.Background(bg)
-		s.Prompt = s.Prompt.Background(bg)
-		return s
+
+	s := textarea.DefaultStyles(dark)
+
+	// The draft is body text, so it takes the theme's own colour when the theme
+	// claims one. Only the focused state: the blurred one is quieter on purpose,
+	// and the variant above already keeps it legible.
+	if fg := theme.T().Text; !theme.IsNone(fg) {
+		s.Focused.Text = s.Focused.Text.Foreground(fg)
 	}
-	s := c.ta.Styles()
-	s.Focused = paint(s.Focused)
-	s.Blurred = paint(s.Blurred)
+
+	if painted {
+		paint := func(s textarea.StyleState) textarea.StyleState {
+			s.Base = s.Base.Background(bg)
+			s.Text = s.Text.Background(bg)
+			s.LineNumber = s.LineNumber.Background(bg)
+			s.CursorLineNumber = s.CursorLineNumber.Background(bg)
+			s.CursorLine = s.CursorLine.Background(bg)
+			s.EndOfBuffer = s.EndOfBuffer.Background(bg)
+			s.Placeholder = s.Placeholder.Background(bg)
+			s.Prompt = s.Prompt.Background(bg)
+			return s
+		}
+		s.Focused = paint(s.Focused)
+		s.Blurred = paint(s.Blurred)
+	}
 	c.ta.SetStyles(s)
 }
 

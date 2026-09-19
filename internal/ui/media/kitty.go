@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,10 @@ import (
 // transmitted image size. The terminal still scales the image into c×r cells.
 const transmitCellPx = 12
 
+// maxKittyID is the largest image id that fits the placeholder cell's 24-bit
+// foreground encoding without spending a diacritic on a non-zero top byte.
+const maxKittyID = 0xFFFFFF
+
 // KittyStore tracks Kitty image ids per photo and their transmission state.
 // It is owned by the root model and shared with KittyRenderer.
 type KittyStore struct {
@@ -27,12 +32,17 @@ type KittyStore struct {
 	next        uint32
 }
 
-// NewKittyStore returns an empty store. Ids start at 1 (Kitty ids are positive).
+// NewKittyStore returns an empty store. Numbering starts at a random point in
+// the 24-bit id space rather than at 1: the terminal keeps the placements of a
+// process that has exited, and iTerm2 resolves a placeholder to the first
+// placement it holds under that id, so a run numbering from 1 draws the photos
+// of the previous run in the same tab (#259). A random start also keeps us out
+// of the way of other programs sharing the terminal.
 func NewKittyStore() *KittyStore {
 	return &KittyStore{
 		idByPhoto:   make(map[int64]uint32),
 		colsByPhoto: make(map[int64]int),
-		next:        1,
+		next:        1 + rand.Uint32N(maxKittyID),
 	}
 }
 
@@ -52,7 +62,7 @@ func (s *KittyStore) IDFor(photoID int64) uint32 {
 func (s *KittyStore) NewID() uint32 {
 	id := s.next
 	s.next++
-	if s.next > 0xFFFFFF {
+	if s.next > maxKittyID {
 		s.next = 1 // wrap; a TUI session will not hold 16M distinct photos
 	}
 	return id
@@ -345,9 +355,17 @@ func placeholderLines(id uint32, cols, rows int) []string {
 // placement — the same mechanism the message list uses for partial-scroll
 // slicing, here used to crop a mosaic tile to a centered window. hOff/vOff of 0
 // with winCols/winRows equal to the placement size yields the whole image.
+//
+// A third diacritic spells out the image id's most significant byte. The spec
+// lets it be omitted while the id fits in 24 bits (ours always does), but
+// iTerm2 reads an absent one as -1 and shifts it into the id as 0xff000000,
+// then finds no placement under that number and draws nothing (#259). Sending
+// it costs one combining mark per cell and terminals that default it to zero
+// read the same id either way.
 func PlaceholderWindow(id uint32, hOff, vOff, winCols, winRows int) []string {
 	fg := fmt.Sprintf("\x1b[38;2;%d;%d;%dm",
 		byte((id>>16)&0xff), byte((id>>8)&0xff), byte(id&0xff))
+	msb := kitty.Diacritic(int(id >> 24))
 	lines := make([]string, winRows)
 	for r := 0; r < winRows; r++ {
 		var sb strings.Builder
@@ -357,6 +375,7 @@ func PlaceholderWindow(id uint32, hOff, vOff, winCols, winRows int) []string {
 			sb.WriteRune(kitty.Placeholder)
 			sb.WriteRune(rd)
 			sb.WriteRune(kitty.Diacritic(hOff + c))
+			sb.WriteRune(msb)
 		}
 		sb.WriteString("\x1b[0m")
 		lines[r] = sb.String()

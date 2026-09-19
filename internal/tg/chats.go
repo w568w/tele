@@ -303,6 +303,10 @@ func (c *GotdClient) parseDialogs(result tg.MessagesDialogsClass) []domain.Chat 
 		chat.ReadInboxMaxID = dlg.ReadInboxMaxID
 		chat.ReadOutboxMaxID = dlg.ReadOutboxMaxID
 		chat.LastMessage = &domain.Message{ID: dlg.TopMessage, Date: m.lastMsgAt}
+		// The dialog knows where the server's history ends; the preview above
+		// carries only a date. Without the id nothing can tell a chat that is
+		// up to date from one that stopped receiving.
+		chat.TopMessageID = dlg.TopMessage
 		if d, ok := dlg.GetDraft(); ok {
 			chat.Draft = draftText(d)
 		}

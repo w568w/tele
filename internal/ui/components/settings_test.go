@@ -147,7 +147,7 @@ func TestSettings_ExplainsItsMarks(t *testing.T) {
 
 // Values are shown in the words the setting is thought about in.
 func TestSettings_ShowsValuesInHumanTerms(t *testing.T) {
-	m, _ := settingsOverlay(t, "ui:\n  notification_preview: false\nphotos:\n  disk_cache_size: 268435456\navatars:\n  disk_cache_size: 0\n", nil)
+	m, _ := settingsOverlay(t, "ui:\n  notifications:\n    preview: false\nphotos:\n  disk_cache_size: 268435456\navatars:\n  disk_cache_size: 0\n", nil)
 
 	assert.Contains(t, find(t, m, "Notification preview"), "off")
 	assert.Contains(t, find(t, m, "Media cache size"), "256 MB")

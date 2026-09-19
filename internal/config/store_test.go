@@ -107,7 +107,7 @@ func TestStore_IsDefaultAsksWhetherTheFileNamesTheSetting(t *testing.T) {
 
 	assert.False(t, s.IsDefault("ui.history_limit"), "written, even though it equals the default")
 	assert.False(t, s.IsDefault("ui.toasts.max_visible"), "written and different")
-	assert.True(t, s.IsDefault("ui.notification_preview"), "not in the file at all")
+	assert.True(t, s.IsDefault("ui.notifications.preview"), "not in the file at all")
 	assert.True(t, s.IsDefault("photos.disk_cache_size"), "not even its section is in the file")
 }
 
@@ -169,7 +169,7 @@ func TestStore_ConcurrentSetsBothLand(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, set := range []func() error{
 		func() error { return s.Set("ui.history_limit", 120) },
-		func() error { return s.Set("ui.notification_preview", false) },
+		func() error { return s.Set("ui.notifications.preview", false) },
 		func() error { return s.Set("photos.max_long_side_px", 1200) },
 	} {
 		wg.Add(1)
@@ -182,6 +182,6 @@ func TestStore_ConcurrentSetsBothLand(t *testing.T) {
 
 	require.NoError(t, s.Reload())
 	assert.Equal(t, 120, s.Current().UI.HistoryLimit)
-	assert.False(t, s.Current().UI.NotificationPreview)
+	assert.False(t, s.Current().UI.Notifications.Preview)
 	assert.Equal(t, 1200, s.Current().Photos.MaxLongSidePx)
 }

@@ -80,25 +80,27 @@ signs:
 sboms:
   - artifacts: archive
 
-# Arch User Repository: prebuilt -bin package. Stable tags only.
-aurs:
-  - name: tele-bin
-    ids: [tarballs]
-    homepage: https://github.com/sorokin-vladimir/tele
-    description: TUI Telegram client for the terminal.
-    maintainers: ["Vladimir Sorokin <v.sorokin@hey.com>"]
-    license: MIT
-    private_key: "{{ .Env.AUR_KEY }}"
-    git_url: ssh://aur@aur.archlinux.org/tele-bin.git
-    # Publish only on stable tags AND once AUR_KEY is configured.
-    skip_upload: '{{ if .Prerelease }}true{{ else if eq (index .Env "AUR_KEY") "" }}true{{ else }}false{{ end }}'
-    package: |-
-      # bin
-      install -Dm755 "./tele" "${pkgdir}/usr/bin/tele"
-      # license
-      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/tele/LICENSE"
-      # docs
-      install -Dm644 "./config.yml.example" "${pkgdir}/usr/share/doc/tele/config.yml.example"
+# Arch User Repository: prebuilt -bin package. Disabled — no AUR account yet and
+# no package name claimed, so the name and the repository URL below are blank on
+# purpose. Fill both in and uncomment once the name is registered.
+# aurs:
+#   - name:
+#     ids: [tarballs]
+#     homepage: https://github.com/sorokin-vladimir/tele
+#     description: TUI Telegram client for the terminal.
+#     maintainers: ["Vladimir Sorokin <v.sorokin@hey.com>"]
+#     license: MIT
+#     private_key: "{{ .Env.AUR_KEY }}"
+#     git_url:
+#     # Publish only on stable tags AND once AUR_KEY is configured.
+#     skip_upload: '{{ if .Prerelease }}true{{ else if eq (index .Env "AUR_KEY") "" }}true{{ else }}false{{ end }}'
+#     package: |-
+#       # bin
+#       install -Dm755 "./tele" "${pkgdir}/usr/bin/tele"
+#       # license
+#       install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/tele/LICENSE"
+#       # docs
+#       install -Dm644 "./config.yml.example" "${pkgdir}/usr/share/doc/tele/config.yml.example"
 
 # Windows Scoop bucket. Stable tags only.
 scoops:
