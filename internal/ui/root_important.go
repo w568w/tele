@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -115,12 +116,23 @@ func (m RootModel) importantTitle(title string, width int) string {
 	if m.currentChatID == 0 {
 		return title
 	}
-	counts := fmt.Sprintf("@ %d · ♥ %d", m.importantUnread.Mentions, m.importantUnread.Reactions)
+	var parts []string
 	if m.importantUnread.Loading {
-		counts = "@ … · ♥ …"
+		parts = []string{"@ …", "♥ …"}
 	} else if m.importantUnread.Failed {
-		counts = "@ ? · ♥ ?"
+		parts = []string{"@ ?", "♥ ?"}
+	} else {
+		if m.importantUnread.Mentions > 0 {
+			parts = append(parts, fmt.Sprintf("@ %d", m.importantUnread.Mentions))
+		}
+		if m.importantUnread.Reactions > 0 {
+			parts = append(parts, fmt.Sprintf("♥ %d", m.importantUnread.Reactions))
+		}
 	}
+	if len(parts) == 0 {
+		return title
+	}
+	counts := strings.Join(parts, " · ")
 	return ansi.Truncate(ansi.Truncate(title, max(0, width-ansi.StringWidth(counts)-7), "…")+" "+counts, max(0, width-4), "")
 }
 

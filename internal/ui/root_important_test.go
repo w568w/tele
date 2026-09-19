@@ -143,12 +143,23 @@ func TestImportantVisibleFailureSchedulesRetry(t *testing.T) {
 
 func TestImportantTitleReservesCountsAndUnknownState(t *testing.T) {
 	m, _ := importantUIFixture(t)
-	assert.Contains(t, m.importantTitle("A very long channel name", 26), "@ 1 · ♥ 0")
+	for _, tc := range []struct {
+		unread domain.ImportantUnread
+		want   string
+	}{
+		{domain.ImportantUnread{}, "Channel"},
+		{domain.ImportantUnread{Mentions: 1}, "Channel @ 1"},
+		{domain.ImportantUnread{Reactions: 2}, "Channel ♥ 2"},
+		{domain.ImportantUnread{Mentions: 1, Reactions: 2}, "Channel @ 1 · ♥ 2"},
+		{domain.ImportantUnread{Loading: true}, "Channel @ … · ♥ …"},
+		{domain.ImportantUnread{Failed: true}, "Channel @ ? · ♥ ?"},
+	} {
+		m.importantUnread = tc.unread
+		assert.Equal(t, tc.want, m.importantTitle("Channel", 40))
+	}
+	m.importantUnread = domain.ImportantUnread{Mentions: 1, Reactions: 2}
+	assert.Contains(t, m.importantTitle("A very long channel name", 26), "@ 1 · ♥ 2")
 	assert.LessOrEqual(t, ansi.StringWidth(m.importantTitle("A very long channel name", 26)), 22)
-	m.importantUnread.Loading = true
-	assert.Contains(t, m.importantTitle("Channel", 40), "@ … · ♥ …")
-	m.importantUnread = domain.ImportantUnread{Failed: true}
-	assert.Contains(t, m.importantTitle("Channel", 40), "@ ? · ♥ ?")
 }
 
 func TestImportantInsertModeKeepsBracketAsText(t *testing.T) {
